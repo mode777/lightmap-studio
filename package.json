@@ -1,0 +1,40 @@
+{
+  "name": "lightmap-studio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Engine-agnostic unwrapping and lightmap baking studio built on xatlas-wasm and lightmapper-wasm.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test test/unit.test.mjs test/unwrap.test.mjs test/loader.test.mjs test/import-boundary.test.mjs",
+    "test:headless": "node scripts/headless-test.mjs",
+    "test:consumer": "node scripts/consumer-test.mjs"
+  },
+  "dependencies": {
+    "lightmapper-wasm": "file:..",
+    "xatlas-wasm": "0.2.0"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.43.1",
+    "typescript": "^5.8.2",
+    "vite": "6.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
