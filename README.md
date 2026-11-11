@@ -4,29 +4,24 @@ Engine-agnostic unwrapping and lightmap baking for the web, built on
 [`xatlas-wasm`](https://github.com/mode777/xatlas-wasm) and
 [`lightmapper-wasm`](https://github.com/mode777/lightmapper-wasm).
 
-> **Status: private stage 1.** This package lives under `studio/` in the
-> `lightmapper-wasm` repository while the API is proven by the showcase. It is
-> not published from this repository. Stage 2 extracts it to its own
-> `lightmap-studio` repository and npm package; stage 3 removes the local copy
-> and consumes the published package from the samples.
-
 The studio owns the mesh-to-lightmap path: one shared xatlas atlas, a WebGL2
 lightmapper bake, optional environment prefiltering, quality presets and a
 plain-data result. It does not bundle three.js and does not export renderer
 objects.
 
-## Build
-
-The private package consumes the repository's built `dist/` and the registry
-`xatlas-wasm` package:
+## Install
 
 ```sh
-npm run build:studio        # from the repository root
-# or
-npm run build --prefix studio
+npm install lightmap-studio
 ```
 
-`studio/dist/index.js` and `studio/dist/index.d.ts` are the package entry.
+`lightmapper-wasm` (minimum `0.2.0`) and `xatlas-wasm` are installed as direct
+runtime dependencies. A bundler emits both wasm assets, and the loader resolves
+them beside each dependency's published entry. Consumers do not need
+Emscripten, CMake or a local `lightmapper-wasm` checkout.
+
+The package is pre-1.0: the `0.1.x` line may change its API before `1.0`.
+Changes follow the project's OpenSpec specifications.
 
 ## Quick start
 
@@ -86,9 +81,9 @@ interface LightingInput {
 }
 ```
 
-There is **no directional-light input**. Sky lighting is supplied as HDRI or
-generated equirectangular data. The showcase's procedural sky remains a
-sample-local generator.
+There is **no directional-light input**. Sky lighting is supplied as linear
+equirectangular data; a procedural sky is simply a generator that produces
+that data.
 
 A point light is:
 
@@ -104,7 +99,7 @@ interface PointLightInput {
 The proxy sphere uses uniform radiance `power / (4 * pi^2 * radius^2)`. A small
 radius gives sharper shadows and more sampling noise; a larger radius gives
 softer area-light shadows. The generated proxy is returned in
-`result.scene.emissiveObjects` with `source: "point"` so the sample can render
+`result.scene.emissiveObjects` with `source: "point"` so the caller can render
 the same bulb.
 
 `EnvironmentInput` is linear RGBA radiance in bottom-up row order: row 0 is the
@@ -112,6 +107,15 @@ south pole (`v = 0`), the last row is the north pole (`v = 1`). The studio
 prefilters the environment to a 128x64 irradiance copy by default. Pass
 `options.environmentPrefilter: false` to draw the full-resolution environment,
 or `{ width, height, radius }` to control the copy.
+
+## Wasm assets
+
+Both modules load lazily: `createStudio()` fetches nothing, `unwrap()` loads
+`xatlas.wasm`, and `bake()` probes WebGL2 and `EXT_color_buffer_float` before
+loading `lightmapper.wasm`. A bundler that follows the packages' default
+`new URL(...)` resolution emits both `.wasm` files as build assets. Override a
+module with `wasm.xatlas` / `wasm.lightmapper` when the application serves the
+assets from a custom location.
 
 ## Quality presets
 
@@ -121,8 +125,8 @@ or `{ width, height, radius }` to control the copy.
 | `preview` | 1024 | 64 | 2 | 8 | 1 | 2 |
 | `final` | 1024 | 128 | 3 | 8 | 2 | 2 |
 
-Explicit fields in `options` override the preset. The showcase passes its
-per-scene values as overrides, so its tuned look is unchanged.
+Explicit fields in `options` override the preset. Consumers can pass
+per-scene values as overrides without changing the preset table.
 
 ```ts
 studio.bake({
@@ -138,10 +142,6 @@ rotation jitter before each bake, so repeated bakes of the same scene and
 options are reproducible.
 
 ## Loader options
-
-Both wasm modules load lazily. `createStudio()` fetches nothing; `unwrap()`
-loads xatlas; `bake()` probes WebGL2 and `EXT_color_buffer_float` before loading
-lightmapper.
 
 ```ts
 const studio = await createStudio({
@@ -160,7 +160,7 @@ const studio = await createStudio({
 
 Resolution order per module: injected module, then `binary`, then `url`, then
 the dependency's own default `new URL(...)` asset. Omit `wasm` to use the
-package defaults; a bundler emits both wasm assets.
+package defaults.
 
 Errors are `StudioError` instances with a `code` of `webgl2`, `float`,
 `assets`, `validation`, `atlas`, `aborted`, `disposed`, `busy` or `bake`. The
@@ -170,7 +170,7 @@ and are not disposed by the studio.
 ## Three-free display recipe
 
 The result is a float RGBA lightmap and plain geometry. Any renderer can use
-it. A three.js sample can create a texture like this without the studio
+it. A three.js consumer can create a texture like this without the studio
 depending on three:
 
 ```js
@@ -194,21 +194,33 @@ Use `result.scene.litObjects[i].uvs` as the lightmap UV attribute and multiply
 the material albedo by the texture. Use `result.scene.emissiveObjects` for
 emissive geometry and point proxies.
 
-## Commands
+## Build and test
 
 ```sh
-npm run build --prefix studio          # tsc -> studio/dist
-npm run typecheck --prefix studio
-npm test --prefix studio               # Node unit/unwrap/loader/boundary tests
-CHROME_SHELL_PATH=... npm run test:headless --prefix studio
-npm run test:consumer --prefix studio  # Vite build emits both wasm assets
+npm ci
+npm run build
+npm run typecheck
+npm test                               # unit, unwrap, loader and import boundary
+npm run test:consumer                  # pack → scratch Vite app → headless load
+npm run test:pack                      # published tarball layout
+CHROME_SHELL_PATH=... npm run test:headless
 ```
 
-The headless suite covers the bake result, point-light falloff, deterministic
-repeat bakes, abort, busy rejection, float preflight and disposal.
+`test:consumer` installs the packed tarball, builds an application that
+imports `lightmap-studio`, asserts that both wasm assets are emitted and
+unwraps in headless Chrome. The headless suite covers the bake result,
+point-light falloff, deterministic repeat bakes, abort, busy rejection, float
+preflight and disposal. CI runs the same gates on Node 24 with pinned
+`chrome-headless-shell` 131 and ANGLE SwiftShader.
 
-## Verification
+## Releases
 
-The root `npm run verify:remote` pipeline builds the wasm, assembles `dist`,
-runs the studio checks and then runs the showcase checks. The studio is not a
-published artifact in this stage.
+A `v<version>` tag runs the release workflow. The tag must equal the
+`package.json` version; the workflow runs the build, unit, packed-consumer,
+tarball and headless gates before publishing with provenance. If npm trusted
+publishing is unavailable, configure an `NPM_TOKEN` repository secret; the
+workflow then uses the token with the same gates.
+
+## License
+
+Unlicense. See [LICENSE](./LICENSE).
