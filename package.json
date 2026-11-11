@@ -1,8 +1,17 @@
 {
   "name": "lightmap-studio",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Engine-agnostic unwrapping and lightmap baking studio built on xatlas-wasm and lightmapper-wasm.",
+  "license": "Unlicense",
+  "author": "alexander.klingenbeck@gmx.de",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mode777/lightmap-studio.git"
+  },
+  "homepage": "https://github.com/mode777/lightmap-studio#readme",
+  "bugs": {
+    "url": "https://github.com/mode777/lightmap-studio/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -18,16 +27,27 @@
     "README.md",
     "LICENSE"
   ],
+  "keywords": [
+    "lightmap",
+    "lightmapping",
+    "baking",
+    "webgl2",
+    "webassembly",
+    "wasm",
+    "xatlas",
+    "uv-unwrap"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test test/unit.test.mjs test/unwrap.test.mjs test/loader.test.mjs test/import-boundary.test.mjs",
     "test:headless": "node scripts/headless-test.mjs",
-    "test:consumer": "node scripts/consumer-test.mjs"
+    "test:consumer": "node scripts/consumer-test.mjs",
+    "test:pack": "node scripts/pack-test.mjs"
   },
   "dependencies": {
-    "lightmapper-wasm": "file:..",
-    "xatlas-wasm": "0.2.0"
+    "lightmapper-wasm": "^0.2.0",
+    "xatlas-wasm": "^0.2.0"
   },
   "devDependencies": {
     "puppeteer-core": "^24.43.1",
@@ -36,5 +56,9 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

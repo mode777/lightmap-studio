@@ -11,7 +11,6 @@ import puppeteer from "puppeteer-core";
 import { createServer } from "vite";
 
 const STUDIO_ROOT = path.resolve(import.meta.dirname, "..");
-const REPO_ROOT = path.resolve(STUDIO_ROOT, "..");
 const TIMEOUT_MS = 240_000;
 
 const CHROME_CANDIDATES = [
@@ -73,10 +72,7 @@ async function main() {
     server: {
       host: "127.0.0.1",
       port,
-      strictPort: true,
-      fs: {
-        allow: [STUDIO_ROOT, REPO_ROOT]
-      }
+      strictPort: true
     }
   });
   await server.listen();

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import createXAtlas from "xatlas-wasm";
 import { StudioError, createStudio } from "../dist/index.js";
@@ -122,4 +123,22 @@ test("injected modules remain usable after studio disposal", async () => {
   const atlas = xatlas.createAtlas();
   assert.ok(atlas);
   atlas.destroy();
+});
+
+test("the installed lightmapper dependency provides the seeded rotation API", () => {
+  const manifest = JSON.parse(
+    readFileSync(new URL("../node_modules/lightmapper-wasm/package.json", import.meta.url), "utf8")
+  );
+  const [major, minor] = manifest.version.split(".").map(Number);
+  assert.ok(
+    major > 0 || (major === 0 && minor >= 2),
+    `lightmapper-wasm ${manifest.version} predates lmSeed and the _srand export`
+  );
+
+  const entry = readFileSync(
+    new URL("../node_modules/lightmapper-wasm/dist/index.js", import.meta.url),
+    "utf8"
+  );
+  assert.match(entry, /function lmSeed\(/);
+  assert.match(entry, /_srand=Module\["_srand"\]/);
 });

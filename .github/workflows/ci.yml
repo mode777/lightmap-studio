@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [Main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit, loader, unwrap and boundary suites
+        run: npm test
+
+      - name: Install chrome-headless-shell
+        id: chrome
+        run: |
+          INSTALLED="$(npx --yes @puppeteer/browsers install chrome-headless-shell@131.0.6778.264 --path /tmp/chrome | awk '{print $NF}' | tail -n 1)"
+          if [ -x "$INSTALLED" ]; then
+            CHROME_SHELL="$INSTALLED"
+          else
+            CHROME_SHELL="$(find "$INSTALLED" -type f -name chrome-headless-shell | head -n 1)"
+          fi
+          test -n "$CHROME_SHELL"
+          test -x "$CHROME_SHELL"
+          echo "path=$CHROME_SHELL" >> "$GITHUB_OUTPUT"
+          echo "chrome-headless-shell: $CHROME_SHELL"
+
+      - name: Packed consumer test
+        run: npm run test:consumer
+        env:
+          CHROME_SHELL_PATH: ${{ steps.chrome.outputs.path }}
+
+      - name: Tarball layout test
+        run: npm run test:pack
+
+      - name: Headless bake test
+        run: npm run test:headless
+        env:
+          CHROME_SHELL_PATH: ${{ steps.chrome.outputs.path }}
