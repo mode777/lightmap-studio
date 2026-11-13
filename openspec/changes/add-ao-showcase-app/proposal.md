@@ -12,7 +12,7 @@ The library ships as a three-free npm package with a README recipe but no runnab
   - bakes ambient occlusion with `lightmap-studio` into an atlas lightmap (uniform white sky environment, single bounce);
   - rebuilds each baked mesh from the unwrapped primitives (using the library's `xref` mapping) so the lightmap UVs line up with the rendered triangles, and adds a Lightmap Atlas tab with chart outlines for inspecting the unwrap;
   - exports the document back as `.glb` (or `.gltf` for `.gltf` input) with the baked AO embedded: atlas UVs written to `TEXCOORD_1`, AO texture as `occlusionTexture`, via three.js `GLTFExporter`.
-- Build the UI on `vscode-workbench` at composition level, using only what the tool needs: `WorkbenchShell` with a title bar (app icon/title, Import, Export), a resizable sidebar (file tree + bake settings) and a status bar (bake progress); per-tag element registrations only (`vscode-tree`, `vscode-button`, `vscode-collapsible`, `vscode-icon`).
+- Build the UI on `vscode-workbench` at composition level, using only what the tool needs: `WorkbenchShell` with a title bar (app icon/title, Import, Export), a left sidebar (file tree + messages), a right sidebar (all bake options), a Bake AO action in the 3D viewport, and a status bar (bake progress); per-tag element registrations only (`vscode-tree`, `vscode-button`, `vscode-collapsible`, `vscode-icon`).
 - Add `.github/workflows/pages.yml`: on push to `Main`, build library + app and deploy the app to GitHub Pages at `https://mode777.github.io/lightmap-studio/` (Vite `base: /lightmap-studio/`), including a headless smoke bake before deploy.
 - Document the showcase in `README.md` and `AGENTS.md` (build/test commands for the app).
 

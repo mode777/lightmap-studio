@@ -57,6 +57,7 @@ interface TextureStats {
 
 export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [bakePanelWidth, setBakePanelWidth] = useState(280);
   const [droppedCount, setDroppedCount] = useState(0);
   const [skippedCount, setSkippedCount] = useState(0);
   const [messages, setMessages] = useState<string[]>([]);
@@ -729,96 +730,6 @@ export function App() {
                   </vscode-tree>
                 )}
               </vscode-collapsible>
-              <vscode-collapsible heading="Bake" open>
-                <vscode-form-container>
-                  <vscode-form-group variant="settings-group">
-                    <vscode-label>Atlas size</vscode-label>
-                    <vscode-single-select
-                      data-form-control="atlas"
-                      value={String(atlasSize)}
-                      disabled={bakeStatus === "running"}
-                    >
-                      {ATLAS_SIZES.map((size) => (
-                        <vscode-option key={size} value={String(size)}>
-                          {`${size} x ${size}`}
-                        </vscode-option>
-                      ))}
-                    </vscode-single-select>
-                    <vscode-form-helper>
-                      Resolution of the shared atlas texture.
-                    </vscode-form-helper>
-                  </vscode-form-group>
-                  <vscode-form-group variant="settings-group">
-                    <vscode-label>Chart padding</vscode-label>
-                    <vscode-single-select
-                      data-form-control="padding"
-                      value={String(padding)}
-                      disabled={bakeStatus === "running"}
-                    >
-                      {ATLAS_PADDING_OPTIONS.map((size) => (
-                        <vscode-option key={size} value={String(size)}>
-                          {`${size} px`}
-                        </vscode-option>
-                      ))}
-                    </vscode-single-select>
-                    <vscode-form-helper>
-                      Texels between UV charts. Raise it if light or dilation bleeds across islands.
-                    </vscode-form-helper>
-                  </vscode-form-group>
-                  <vscode-form-group variant="settings-group">
-                    <vscode-label>Quality</vscode-label>
-                    <vscode-single-select
-                      data-form-control="quality"
-                      value={quality}
-                      disabled={bakeStatus === "running"}
-                    >
-                      {QUALITY_PRESETS.map((preset) => (
-                        <vscode-option key={preset} value={preset}>
-                          {preset}
-                        </vscode-option>
-                      ))}
-                    </vscode-single-select>
-                    <vscode-form-helper>
-                      Hemisphere samples and smoothing per preset.
-                    </vscode-form-helper>
-                  </vscode-form-group>
-                  <vscode-form-group variant="settings-group">
-                    <vscode-label>Bounces</vscode-label>
-                    <vscode-single-select
-                      data-form-control="bounces"
-                      value={String(bounces)}
-                      disabled={bakeStatus === "running"}
-                    >
-                      {BOUNCE_OPTIONS.map((count) => (
-                        <vscode-option key={count} value={String(count)}>
-                          {String(count)}
-                        </vscode-option>
-                      ))}
-                    </vscode-single-select>
-                    <vscode-form-helper>
-                      Indirect light bounces. AO needs only 1 (direct sky).
-                    </vscode-form-helper>
-                  </vscode-form-group>
-                </vscode-form-container>
-                <div className="actions-row">
-                  <vscode-button
-                    disabled={bakeStatus === "running" || activeName === null}
-                    onClick={() => void runBake()}
-                  >
-                    Bake AO
-                  </vscode-button>
-                  <vscode-button
-                    secondary
-                    disabled={bakeStatus !== "done" || activeName === null}
-                    onClick={() => void runExport()}
-                  >
-                    Export
-                  </vscode-button>
-                </div>
-                {bakeMessage && bakeStatus === "failed" ? (
-                  <p className="message error">{bakeMessage}</p>
-                ) : null}
-              </vscode-collapsible>
               <vscode-collapsible heading="Messages" open={messages.length > 0}>
                 <div className="messages">
                   <vscode-button className="link" onClick={() => void loadSample()}>
@@ -835,6 +746,95 @@ export function App() {
                   )}
                 </div>
               </vscode-collapsible>
+            </div>
+          </Sidebar>
+        </ResizablePane>
+      }
+      secondarySideBar={
+        <ResizablePane
+          side="right"
+          size={bakePanelWidth}
+          min={220}
+          max={460}
+          onSizeChange={setBakePanelWidth}
+          onReset={() => setBakePanelWidth(280)}
+          label="Resize bake panel"
+        >
+          <Sidebar title="Bake" icon="lightbulb" label="Bake settings">
+            <div className="bake-panel">
+              <vscode-form-container>
+                <vscode-form-group variant="settings-group">
+                  <vscode-label>Atlas size</vscode-label>
+                  <vscode-single-select
+                    data-form-control="atlas"
+                    value={String(atlasSize)}
+                    disabled={bakeStatus === "running"}
+                  >
+                    {ATLAS_SIZES.map((size) => (
+                      <vscode-option key={size} value={String(size)}>
+                        {`${size} x ${size}`}
+                      </vscode-option>
+                    ))}
+                  </vscode-single-select>
+                  <vscode-form-helper>
+                    Resolution of the shared atlas texture.
+                  </vscode-form-helper>
+                </vscode-form-group>
+                <vscode-form-group variant="settings-group">
+                  <vscode-label>Chart padding</vscode-label>
+                  <vscode-single-select
+                    data-form-control="padding"
+                    value={String(padding)}
+                    disabled={bakeStatus === "running"}
+                  >
+                    {ATLAS_PADDING_OPTIONS.map((size) => (
+                      <vscode-option key={size} value={String(size)}>
+                        {`${size} px`}
+                      </vscode-option>
+                    ))}
+                  </vscode-single-select>
+                  <vscode-form-helper>
+                    Texels between UV charts. Raise it if light or dilation bleeds across islands.
+                  </vscode-form-helper>
+                </vscode-form-group>
+                <vscode-form-group variant="settings-group">
+                  <vscode-label>Quality</vscode-label>
+                  <vscode-single-select
+                    data-form-control="quality"
+                    value={quality}
+                    disabled={bakeStatus === "running"}
+                  >
+                    {QUALITY_PRESETS.map((preset) => (
+                      <vscode-option key={preset} value={preset}>
+                        {preset}
+                      </vscode-option>
+                    ))}
+                  </vscode-single-select>
+                  <vscode-form-helper>
+                    Hemisphere samples and smoothing per preset.
+                  </vscode-form-helper>
+                </vscode-form-group>
+                <vscode-form-group variant="settings-group">
+                  <vscode-label>Bounces</vscode-label>
+                  <vscode-single-select
+                    data-form-control="bounces"
+                    value={String(bounces)}
+                    disabled={bakeStatus === "running"}
+                  >
+                    {BOUNCE_OPTIONS.map((count) => (
+                      <vscode-option key={count} value={String(count)}>
+                        {String(count)}
+                      </vscode-option>
+                    ))}
+                  </vscode-single-select>
+                  <vscode-form-helper>
+                    Indirect light bounces. AO needs only 1 (direct sky).
+                  </vscode-form-helper>
+                </vscode-form-group>
+              </vscode-form-container>
+              {bakeMessage && bakeStatus === "failed" ? (
+                <p className="message error">{bakeMessage}</p>
+              ) : null}
             </div>
           </Sidebar>
         </ResizablePane>
@@ -879,6 +879,21 @@ export function App() {
             data-stage-panel="viewport"
           >
             <div className="viewport-host" ref={viewportHostRef}>
+              <button
+                type="button"
+                className="viewport-bake-button"
+                data-view-action="bake"
+                title={
+                  bakeStatus === "running"
+                    ? "Baking ambient occlusion"
+                    : "Bake ambient occlusion for the active document"
+                }
+                disabled={bakeStatus === "running" || activeName === null}
+                onClick={() => void runBake()}
+              >
+                <vscode-icon name="lightbulb" size={14} />
+                <span>{bakeStatus === "running" ? "Baking..." : "Bake AO"}</span>
+              </button>
               {activeName !== null ? (
                 <div
                   className="viewport-mode-switch"

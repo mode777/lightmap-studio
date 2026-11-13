@@ -216,7 +216,8 @@ as a standard glTF `occlusionTexture` sampled on `TEXCOORD_1`. A **Lightmap
 Atlas** tab shows the baked atlas with the unwrapped chart outlines and atlas
 statistics, so UV or seam problems are visible directly. The published
 instance is served at `https://mode777.github.io/lightmap-studio/` via GitHub
-Actions.
+Actions. Bake options live in a right-hand panel, while the Bake AO action and
+the display-mode switch sit in the 3D viewport.
 
 Scope notes: the showcase bakes AO only (a uniform white sky with a single
 bounce), so the export is readable by any glTF 2.0 viewer. Full-radiance

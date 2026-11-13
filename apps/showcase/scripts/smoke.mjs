@@ -209,6 +209,34 @@ async function main() {
       `[showcase:smoke] PASS title bar (${titleBar.title}, import/export actions, export disabled before bake)`
     );
 
+    const layout = await page.evaluate(() => {
+      const left = document.querySelector(".resizable-pane--left");
+      const right = document.querySelector(".resizable-pane--right");
+      const viewport = document.querySelector(".viewport-host");
+      const leftText = Array.from(left?.querySelectorAll("button, vscode-button") ?? [])
+        .map((element) => element.textContent?.trim() ?? "")
+        .join(" ");
+      return {
+        leftHasBakeOptions: Boolean(left?.querySelector('[data-form-control="atlas"]')),
+        leftHasBakeActions: /Bake AO|Export/.test(leftText),
+        rightHasBakeOptions: ["atlas", "padding", "quality", "bounces"].every((control) =>
+          Boolean(right?.querySelector(`[data-form-control="${control}"]`))
+        ),
+        bakeButtonInViewport: Boolean(viewport?.querySelector('[data-view-action="bake"]'))
+      };
+    });
+    if (
+      layout.leftHasBakeOptions ||
+      layout.leftHasBakeActions ||
+      !layout.rightHasBakeOptions ||
+      !layout.bakeButtonInViewport
+    ) {
+      throw new Error(`bake controls are in the wrong panel: ${JSON.stringify(layout)}`);
+    }
+    console.log(
+      "[showcase:smoke] PASS bake options in right panel, Bake AO in viewport, none in left panel"
+    );
+
     const shot = async (name) => {
       if (SCREENSHOT_DIR) {
         await page.screenshot({ path: path.join(SCREENSHOT_DIR, name) });
@@ -230,6 +258,13 @@ async function main() {
       throw new Error(`sample document is not active after load: ${loaded.active}`);
     }
     console.log(`[showcase:smoke] PASS loaded and activated ${loaded.active}`);
+
+    const viewportBakeEnabled = await page.evaluate(() => {
+      const button = document.querySelector('[data-view-action="bake"]');
+      return button instanceof HTMLButtonElement && !button.disabled;
+    });
+    if (!viewportBakeEnabled) throw new Error("viewport Bake AO button is disabled with a document");
+    console.log("[showcase:smoke] PASS viewport Bake AO button enables with a document");
 
     // Drive the bounces dropdown through real UI interaction (same select
     // wiring as all settings dropdowns). Quality stays at the default

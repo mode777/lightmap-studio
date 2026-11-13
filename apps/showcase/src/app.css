@@ -84,7 +84,8 @@ body {
   cursor: default;
 }
 
-.explorer-body {
+.explorer-body,
+.bake-panel {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -94,16 +95,12 @@ body {
   background: var(--vscode-sideBar-background, #181818);
   color: var(--vscode-foreground, #cccccc);
   font-size: var(--vscode-font-size, 13px);
+  box-sizing: border-box;
 }
 
-.explorer-body vscode-form-group {
+.explorer-body vscode-form-group,
+.bake-panel vscode-form-group {
   --vscode-font-size: 13px;
-}
-
-.actions-row {
-  display: flex;
-  gap: 8px;
-  padding-top: 4px;
 }
 
 .empty-hint {
@@ -121,10 +118,6 @@ body {
 
 .messages vscode-button {
   width: fit-content;
-}
-
-.actions-row vscode-button {
-  width: auto;
 }
 
 .message {
@@ -290,6 +283,40 @@ body {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+.viewport-bake-button {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 6px;
+  background: var(--vscode-button-background, #0078d4);
+  color: var(--vscode-button-foreground, #ffffff);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+}
+
+.viewport-bake-button:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground, #026ec1);
+}
+
+.viewport-bake-button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #0078d4);
+  outline-offset: 2px;
+}
+
+.viewport-bake-button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .viewport-mode-switch {
