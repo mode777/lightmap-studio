@@ -13,6 +13,10 @@ export interface ExtractedEntry {
   mesh: THREE.Mesh;
   /** Source geometry (pre-clone); several entries can share one geometry. */
   geometry: THREE.BufferGeometry;
+  /** Material this primitive resolved to on the source mesh. */
+  material: THREE.Material;
+  /** Index into the source mesh's material array (0 for a single material). */
+  materialIndex: number;
   input: MeshInput;
 }
 
@@ -32,7 +36,8 @@ export function extractMeshInputs(root: THREE.Object3D): ExtractedEntry[] {
     const objectName = pathOf(object, root);
 
     groups.forEach((group, groupIndex) => {
-      const material = materials[group.materialIndex ?? 0] ?? materials[0];
+      const requestedIndex = group.materialIndex ?? 0;
+      const material = materials[requestedIndex] ?? materials[0];
       if (!material) return;
       const indices = primitiveIndices(geometry, group);
       if (!indices || indices.length < 3) return;
@@ -41,6 +46,8 @@ export function extractMeshInputs(root: THREE.Object3D): ExtractedEntry[] {
         name: groups.length > 1 ? `${objectName}[${groupIndex}]` : objectName,
         mesh: object,
         geometry,
+        material,
+        materialIndex: materials[requestedIndex] ? requestedIndex : 0,
         input: {
           name: groups.length > 1 ? `${objectName}[${groupIndex}]` : objectName,
           positions: worldPositions(geometry, object.matrixWorld),

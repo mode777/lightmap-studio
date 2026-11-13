@@ -15,13 +15,15 @@ import { filesFromDataTransfer } from "./lib/dropDom.ts";
 import { downloadResult, exportDocument } from "./lib/exporter.ts";
 import { extractMeshInputs } from "./lib/extract.ts";
 import { parseDocument } from "./lib/gltf.ts";
-import { applyBakeResult, type AppliedBake } from "./lib/lightmap.ts";
+import { applyBakeResult, bakedMaterialsOf, type AppliedBake } from "./lib/lightmap.ts";
 import { buildSampleGlbFile } from "./lib/sample.ts";
 import { Viewport, type DisplayMode } from "./lib/viewport.ts";
 import { installTestHook, type ShowcaseHookState, type ExportOutcome } from "./lib/testHook.ts";
 import type { ActiveDocument } from "./lib/appState.ts";
+import { AtlasInspector } from "./AtlasInspector.tsx";
 
 type BakeStatus = "idle" | "running" | "done" | "failed";
+type StageTab = "viewport" | "atlas";
 
 interface TextureStats {
   min: number;
@@ -43,6 +45,10 @@ export function App() {
   const [atlasSize, setAtlasSize] = useState(1024);
   const [quality, setQuality] = useState<(typeof QUALITY_PRESETS)[number]>("preview");
   const [bounces, setBounces] = useState(1);
+  const [stageTab, setStageTab] = useState<StageTab>("viewport");
+  // React copy of the applied bake for the atlas tab; the ref stays the
+  // synchronous source for the test hook and export.
+  const [appliedBake, setAppliedBake] = useState<AppliedBake | null>(null);
 
   // Synchronous mirrors: the test hook and the bake/export flows read these
   // directly, so they never depend on a React render having happened.
@@ -60,7 +66,7 @@ export function App() {
     bounces: 1
   });
 
-  const viewportHostRef = useRef<HTMLElement | null>(null);
+  const viewportHostRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<Viewport | null>(null);
 
   const documentTree = useMemo(
@@ -157,14 +163,25 @@ export function App() {
           entries,
           triangleCount
         };
+        const previous = activeRef.current;
         appliedRef.current = null;
         bakingRef.current = false;
         activeRef.current = loaded;
+        setAppliedBake(null);
+        setStageTab("viewport");
         setStatus("idle");
         setBakeMessage(null);
         setProgressLabel(null);
         changeDisplayMode("albedo");
         viewportRef.current?.setScene(parsed.scene);
+        // The viewport disposes the active geometry/material graph; source
+        // geometries kept on the old entries for re-bakes need their own pass.
+        if (previous) {
+          const geometries = new Set(
+            previous.entries.map((entry) => entry.geometry)
+          );
+          for (const geometry of geometries) geometry.dispose();
+        }
         setActiveName(document.name);
         setActivePath(document.path);
       } catch (error) {
@@ -289,6 +306,7 @@ export function App() {
       });
       const applied = applyBakeResult(current.entries, result);
       appliedRef.current = applied;
+      setAppliedBake(applied);
       changeDisplayMode("ao");
       setStatus("done");
       setProgressLabel(null);
@@ -349,9 +367,71 @@ export function App() {
       hasUv1,
       messages: messagesRef.current,
       materials: sceneMaterialSummary(active),
-      bakeSettings: { ...settingsRef.current }
+      bakeSettings: { ...settingsRef.current },
+      atlas: appliedRef.current
+        ? {
+            width: appliedRef.current.scene.atlas.width,
+            height: appliedRef.current.scene.atlas.height,
+            chartCount: appliedRef.current.scene.atlas.chartCount,
+            utilization: appliedRef.current.scene.atlas.utilization
+          }
+        : null
     };
  }, []);
+
+  /**
+   * Regression check for the bake write-back: every baked mesh must have one
+   * lightmap UV per vertex and an index buffer that stays inside that range.
+   * The old per-primitive write-back produced short uv1 buffers (one group
+   * overwriting the whole mesh), which put AO on the wrong faces.
+   */
+  function uvIntegrity(): {
+    ok: boolean;
+    issues: string[];
+    meshes: Array<{ name: string; vertexCount: number; uv1Count: number; indexMax: number; groups: number }>;
+  } {
+    const current = activeRef.current;
+    if (!current || !appliedRef.current) {
+      return { ok: false, issues: ["no baked document"], meshes: [] };
+    }
+    const issues: string[] = [];
+    const meshes: Array<{ name: string; vertexCount: number; uv1Count: number; indexMax: number; groups: number }> = [];
+    current.root.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      if (!bakedMaterialsOf(object)) return;
+      const geometry = object.geometry;
+      const position = geometry.getAttribute("position");
+      const uv1 = geometry.getAttribute("uv1");
+      const index = geometry.getIndex();
+      const vertexCount = position?.count ?? 0;
+      let indexMax = -1;
+      if (index) {
+        for (let i = 0; i < index.count; i += 1) {
+          if (index.array[i]! > indexMax) indexMax = index.array[i]!;
+        }
+      }
+      meshes.push({
+        name: object.name || object.type,
+        vertexCount,
+        uv1Count: uv1?.count ?? 0,
+        indexMax,
+        groups: geometry.groups.length
+      });
+      if (!uv1) {
+        issues.push(`${object.name || object.type}: missing uv1`);
+      } else if (uv1.count !== vertexCount) {
+        issues.push(
+          `${object.name || object.type}: uv1 has ${uv1.count} vertices for ${vertexCount} positions`
+        );
+      }
+      if (indexMax >= vertexCount) {
+        issues.push(
+          `${object.name || object.type}: index ${indexMax} is outside ${vertexCount} vertices`
+        );
+      }
+    });
+    return { ok: issues.length === 0 && meshes.length > 0, issues, meshes };
+  }
 
   // Debug/test hook (drives the smoke test; harmless in interactive use).
   useEffect(() => {
@@ -363,7 +443,8 @@ export function App() {
       getHookState,
       getAtlasDataUrl: () => appliedRef.current?.textures.canvas.toDataURL("image/png") ?? null,
       getFloorUvAtlasSamples,
-      sampleFloorAoMap
+      sampleFloorAoMap,
+      uvIntegrity
     });
   }, [ingestFiles, runBake, runExport, loadSample, getHookState]);
 
@@ -378,9 +459,14 @@ export function App() {
     const current = activeRef.current;
     if (!applied || !current) return null;
     const entry = current.entries.find(
-      (candidate) => candidate.name === "floor" || candidate.name.endsWith("/floor")
+      (candidate) =>
+        candidate.mesh.name === "floor" ||
+        candidate.name === "floor" ||
+        candidate.name.endsWith("/floor")
     );
     if (!entry) return null;
+    // The baked mesh now carries the rebuilt geometry with uv1; entries keep
+    // pointing at the original source geometry for re-bakes.
     const uv = entry.mesh.geometry.getAttribute("uv1");
     if (!uv) return null;
     const canvas = applied.textures.canvas;
@@ -643,12 +729,49 @@ export function App() {
         />
       }
     >
-      <main className="viewport-host" ref={viewportHostRef}>
-        {activeName === null ? (
-          <div className="empty-viewport overlay">
-            Drop a .glb or .gltf document to begin, or load the sample scene from the sidebar.
-          </div>
-        ) : null}
+      <main className="stage-host">
+        <div className="stage-tabs" role="tablist" aria-label="Stage view">
+          <button
+            type="button"
+            role="tab"
+            className={stageTab === "viewport" ? "stage-tab active" : "stage-tab"}
+            aria-selected={stageTab === "viewport"}
+            data-stage-tab="viewport"
+            onClick={() => setStageTab("viewport")}
+          >
+            3D
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={stageTab === "atlas" ? "stage-tab active" : "stage-tab"}
+            aria-selected={stageTab === "atlas"}
+            data-stage-tab="atlas"
+            onClick={() => setStageTab("atlas")}
+          >
+            Lightmap Atlas
+          </button>
+        </div>
+        <div className="stage-content">
+          <section
+            className={stageTab === "viewport" ? "stage-panel active" : "stage-panel"}
+            data-stage-panel="viewport"
+          >
+            <div className="viewport-host" ref={viewportHostRef}>
+              {activeName === null ? (
+                <div className="empty-viewport overlay">
+                  Drop a .glb or .gltf document to begin, or load the sample scene from the sidebar.
+                </div>
+              ) : null}
+            </div>
+          </section>
+          <section
+            className={stageTab === "atlas" ? "stage-panel active" : "stage-panel"}
+            data-stage-panel="atlas"
+          >
+            <AtlasInspector applied={appliedBake} />
+          </section>
+        </div>
       </main>
     </WorkbenchShell>
   );

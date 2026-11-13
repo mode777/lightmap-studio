@@ -55,7 +55,7 @@ const result = await studio.bake({
   quality: "preview"
 });
 
-// result.scene.litObjects[i].uvs / positions / normals / indices / charts
+// result.scene.litObjects[i].uvs / positions / normals / indices / charts / xref
 // result.lightmap       Float32Array, RGBA
 // result.scene.atlas    width, height, chartCount, utilization
 // result.stats          mean, min, max, nonBlackRatio, litPixels
@@ -191,8 +191,10 @@ texture.needsUpdate = true;
 ```
 
 Use `result.scene.litObjects[i].uvs` as the lightmap UV attribute and multiply
-the material albedo by the texture. Use `result.scene.emissiveObjects` for
-emissive geometry and point proxies.
+the material albedo by the texture. xatlas duplicates vertices at chart seams;
+`litObjects[i].xref` maps every output vertex back to its input vertex so you
+can carry TEXCOORD_0 and other per-vertex data onto the unwrapped geometry. Use
+`result.scene.emissiveObjects` for emissive geometry and point proxies.
 
 ## Showcase
 
@@ -200,8 +202,10 @@ A browser showcase lives in [`apps/showcase`](apps/showcase): drop `.glb` /
 `.gltf` documents (plus their `.bin` and texture files) onto the page, inspect
 them in a viewport, bake **ambient occlusion** into an atlas lightmap, and
 export the document back with the baked AO embedded as a standard glTF
-`occlusionTexture` sampled on `TEXCOORD_1`. The published instance is served
-at `https://mode777.github.io/lightmap-studio/` via GitHub Actions.
+`occlusionTexture` sampled on `TEXCOORD_1`. A **Lightmap Atlas** tab shows the
+baked atlas with the unwrapped chart outlines and atlas statistics, so UV or
+seam problems are visible directly. The published instance is served at
+`https://mode777.github.io/lightmap-studio/` via GitHub Actions.
 
 Scope notes: the showcase bakes AO only (a uniform white sky with a single
 bounce), so the export is readable by any glTF 2.0 viewer. Full-radiance

@@ -63,6 +63,17 @@ After a bake completes, the application SHALL offer a display mode that shows th
 - **WHEN** the user switches the display mode to AO after a completed bake
 - **THEN** the viewport shows the geometry shaded with the baked occlusion texture, and switching back restores the albedo view
 
+### Requirement: Atlas inspector tab
+The application SHALL provide a stage tab that displays the baked lightmap atlas with the unwrapped chart outlines and atlas metadata (dimensions, chart count, utilization). The tab SHALL become available after a bake without re-baking, and switching between the 3D and atlas tabs SHALL preserve the active document, bake result and camera state.
+
+#### Scenario: Inspect the unwrapped lightmap
+- **WHEN** a bake completes and the user opens the Lightmap Atlas tab
+- **THEN** the tab shows the baked atlas at its native resolution with chart outlines that match the lightmap UV islands, plus its size, chart count and utilization
+
+#### Scenario: Return to the 3D view
+- **WHEN** the user switches from the atlas tab back to the 3D tab
+- **THEN** the viewport shows the same scene and display mode without another bake
+
 ### Requirement: AO-embedded export
 The application SHALL export the active document with the baked AO embedded: baked meshes gain their atlas UVs on `TEXCOORD_1` and their materials gain an `occlusionTexture` referencing the baked texture as an 8-bit image, preserving the original geometry, materials, and `TEXCOORD_0`. The output format SHALL match the input format (`.glb` for `.glb`, `.gltf` for `.gltf`), the download SHALL be named after the input document, and export SHALL be unavailable until a bake has completed.
 

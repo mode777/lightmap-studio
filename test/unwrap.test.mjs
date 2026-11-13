@@ -49,8 +49,24 @@ test("unwraps multiple meshes into one shared atlas", async () => {
     assert.ok(scene.atlas.utilization > 0);
     for (const object of scene.litObjects) {
       assert.equal(object.uvs.length, (object.positions.length / 3) * 2);
+      assert.equal(object.xref.length, object.positions.length / 3);
       for (const uv of object.uvs) assert.ok(uv >= 0 && uv < 1);
       assert.equal(object.triangleCount, 2);
+    }
+    // xref points back at the source vertex, so per-vertex input data can be
+    // carried onto the unwrapped mesh.
+    const left = scene.litObjects[0];
+    const source = quad(0, "left");
+    for (let i = 0; i < left.xref.length; i += 1) {
+      const sourceVertex = left.xref[i];
+      assert.deepEqual(
+        [left.positions[i * 3], left.positions[i * 3 + 1], left.positions[i * 3 + 2]],
+        [
+          source.positions[sourceVertex * 3],
+          source.positions[sourceVertex * 3 + 1],
+          source.positions[sourceVertex * 3 + 2]
+        ]
+      );
     }
   } finally {
     xatlas.destroy?.();

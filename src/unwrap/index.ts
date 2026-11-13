@@ -152,6 +152,7 @@ function unwrapObject(
   const normals = new Float32Array(output.vertexCount * 3);
   const uvs = new Float32Array(output.vertexCount * 2);
   const charts = new Uint32Array(output.vertexCount);
+  const xrefs = new Uint32Array(output.vertexCount);
   const inputVertexCount = input.positions.length / 3;
 
   for (let i = 0; i < output.vertexCount; i += 1) {
@@ -169,6 +170,7 @@ function unwrapObject(
     uvs[i * 2] = normalizeAtlasUv(vertex.uv[0], width);
     uvs[i * 2 + 1] = normalizeAtlasUv(vertex.uv[1], height);
     charts[i] = vertex.chartIndex;
+    xrefs[i] = xref;
   }
 
   const indices = new Uint32Array(output.indices);
@@ -186,6 +188,7 @@ function unwrapObject(
     uvs,
     indices,
     charts,
+    xref: xrefs,
     albedo,
     triangleCount: indices.length / 3,
     chartCount: output.chartCount

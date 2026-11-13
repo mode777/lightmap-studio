@@ -16,6 +16,7 @@ export interface ShowcaseHookState {
   messages: string[];
   materials: Array<{ mesh: string; name: string; type: string; map: boolean; aoMap: boolean }>;
   bakeSettings: { atlasSize: number; quality: string; bounces: number };
+  atlas: { width: number; height: number; chartCount: number; utilization: number } | null;
 }
 
 export interface ExportOutcome {
@@ -38,6 +39,17 @@ export interface ShowcaseHook {
   sampleFloorAoMap(
     points: Array<{ u: number; v: number }>
   ): number[] | { error: string; detail?: unknown };
+  uvIntegrity(): {
+    ok: boolean;
+    issues: string[];
+    meshes: Array<{
+      name: string;
+      vertexCount: number;
+      uv1Count: number;
+      indexMax: number;
+      groups: number;
+    }>;
+  };
   debugLoadGlb(
     base64: string
   ): Promise<{
@@ -60,6 +72,17 @@ export interface HookInputs {
   sampleFloorAoMap(
     points: Array<{ u: number; v: number }>
   ): number[] | { error: string; detail?: unknown };
+  uvIntegrity(): {
+    ok: boolean;
+    issues: string[];
+    meshes: Array<{
+      name: string;
+      vertexCount: number;
+      uv1Count: number;
+      indexMax: number;
+      groups: number;
+    }>;
+  };
 }
 
 export function installTestHook(inputs: HookInputs): void {
@@ -88,6 +111,7 @@ export function installTestHook(inputs: HookInputs): void {
     atlasDataUrl: inputs.getAtlasDataUrl,
     floorUvAtlasSamples: inputs.getFloorUvAtlasSamples,
     sampleFloorAoMap: inputs.sampleFloorAoMap,
+    uvIntegrity: inputs.uvIntegrity,
 
     async debugLoadGlb(base64) {
       const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");

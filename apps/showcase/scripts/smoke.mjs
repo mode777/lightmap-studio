@@ -305,10 +305,44 @@ async function main() {
       `[showcase:smoke] PASS baked ${baked.bakedMeshes} meshes (AO range ${baked.ao.min}..${baked.ao.max}, mean ${baked.ao.mean.toFixed(1)})`
     );
 
+    // Re-bake the same document: the source entries still point at the
+    // original geometry, so the second write-back must be identical.
+    const rebaked = await page.evaluate(() => window.__showcase.bake());
+    if (rebaked.error) throw new Error(`re-bake failed: ${rebaked.error}`);
+    const drift =
+      Math.abs(rebaked.ao.min - baked.ao.min) +
+      Math.abs(rebaked.ao.max - baked.ao.max) +
+      Math.abs(rebaked.ao.mean - baked.ao.mean);
+    if (drift > 1e-6) {
+      throw new Error(
+        `re-bake is not deterministic (drift ${drift}): ${JSON.stringify({ baked, rebaked })}`
+      );
+    }
+    console.log("[showcase:smoke] PASS repeated bake is deterministic");
+
     const stateAfterBake = await page.evaluate(() => window.__showcase.state());
     if (!stateAfterBake.hasUv1) throw new Error("no uv1 attribute after bake");
     if (stateAfterBake.displayMode !== "ao") throw new Error("AO display mode not active after bake");
     console.log(`[showcase:smoke] scene materials: ${JSON.stringify(stateAfterBake.materials)}`);
+
+    // The lightmap UVs must cover every rebuilt vertex and the index buffer
+    // must stay inside that range. The old per-primitive write-back left only
+    // the last group's UVs on a shared geometry, which mis-placed the AO.
+    const uvIntegrity = await page.evaluate(() => window.__showcase.uvIntegrity());
+    console.log(`[showcase:smoke] uv integrity: ${JSON.stringify(uvIntegrity)}`);
+    if (!uvIntegrity.ok) {
+      throw new Error(`baked geometry UV integrity failed: ${JSON.stringify(uvIntegrity.issues)}`);
+    }
+    for (const mesh of uvIntegrity.meshes) {
+      if (mesh.uv1Count !== mesh.vertexCount) {
+        throw new Error(
+          `mesh ${mesh.name}: uv1 count ${mesh.uv1Count} != position count ${mesh.vertexCount}`
+        );
+      }
+    }
+    console.log(
+      `[showcase:smoke] PASS uv1 covers all ${uvIntegrity.meshes.length} baked mesh(es)`
+    );
 
     // Capture atlas-anchored UV samples BEFORE export for the round-trip check.
     const uvSamples = await page.evaluate(() => window.__showcase.floorUvAtlasSamples());
@@ -348,6 +382,47 @@ async function main() {
         console.log("[showcase:smoke] screenshot 05-atlas.png");
       }
     }
+
+    // Atlas tab: the baked lightmap plus the unwrapped chart overlay. This is
+    // where a wrong seam mapping is visible directly.
+    await page.click('[data-stage-tab="atlas"]');
+    await page.waitForFunction(
+      () => {
+        const canvas = document.querySelector(".atlas-canvas");
+        return canvas instanceof HTMLCanvasElement && canvas.width > 0 && canvas.height > 0;
+      },
+      { timeout: 5_000, polling: 100 }
+    );
+    const atlasView = await page.evaluate(() => {
+      const canvas = document.querySelector(".atlas-canvas");
+      const meta = document.querySelector(".atlas-meta");
+      return {
+        width: canvas instanceof HTMLCanvasElement ? canvas.width : 0,
+        height: canvas instanceof HTMLCanvasElement ? canvas.height : 0,
+        meta: meta?.textContent ?? ""
+      };
+    });
+    if (!stateAfterBake.atlas) {
+      throw new Error(`bake state has no atlas metadata: ${JSON.stringify(stateAfterBake)}`);
+    }
+    if (atlasView.width !== stateAfterBake.atlas.width) {
+      throw new Error(
+        `atlas tab canvas is ${atlasView.width}px wide, expected ${stateAfterBake.atlas.width}`
+      );
+    }
+    if (atlasView.height !== stateAfterBake.atlas.height) {
+      throw new Error(
+        `atlas tab canvas is ${atlasView.height}px high, expected ${stateAfterBake.atlas.height}`
+      );
+    }
+    if (!atlasView.meta.includes("charts")) {
+      throw new Error(`atlas tab is missing chart metadata: ${JSON.stringify(atlasView)}`);
+    }
+    await shot("05b-atlas-view.png");
+    await page.click('[data-stage-tab="viewport"]');
+    console.log(
+      `[showcase:smoke] PASS atlas tab (${atlasView.width}x${atlasView.height}, ${atlasView.meta})`
+    );
     console.log("[showcase:smoke] PASS albedo/AO display toggle");
 
     // 6. Export and assert the glTF structure.
@@ -465,6 +540,8 @@ async function main() {
       );
     }
     console.log(`[showcase:smoke] PASS AO orientation round trip (max delta ${worst} over ${uvSamples.values.length} samples)`);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await shot("06-reimported-export.png");
 
     // 5b. Two valid documents: the tree activation switches the active scene.
     await page.evaluate(async () => {

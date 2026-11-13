@@ -120,24 +120,38 @@ export class Viewport {
 }
 
 function disposeObject(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
+
+  const collect = (material: THREE.Material): void => {
+    materials.add(material);
+    for (const value of Object.values(material)) {
+      if (value instanceof THREE.Texture) textures.add(value);
+    }
+  };
+
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
-    object.geometry.dispose();
+    geometries.add(object.geometry);
     const set = bakedMaterialsOf(object);
     if (set) {
-      const aoViewMaterials = Array.isArray(set.aoView) ? set.aoView : [set.aoView];
-      for (const material of aoViewMaterials) {
-        const map = (material as THREE.MeshBasicMaterial).map;
-        if (map && typeof map.dispose === "function") map.dispose();
+      for (const material of Array.isArray(set.albedo) ? set.albedo : [set.albedo]) {
+        collect(material);
       }
-      const aoMaterials = Array.isArray(set.ao) ? set.ao : [set.ao];
-      for (const material of aoMaterials) {
-        if (typeof material.dispose === "function") material.dispose();
+      for (const material of Array.isArray(set.ao) ? set.ao : [set.ao]) {
+        collect(material);
+      }
+      for (const material of Array.isArray(set.aoView) ? set.aoView : [set.aoView]) {
+        collect(material);
       }
     }
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    for (const material of materials) {
-      if (typeof material.dispose === "function") material.dispose();
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      collect(material);
     }
   });
+
+  for (const geometry of geometries) geometry.dispose();
+  for (const material of materials) material.dispose();
+  for (const texture of textures) texture.dispose();
 }

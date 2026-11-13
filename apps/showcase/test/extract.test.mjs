@@ -89,8 +89,27 @@ test("extractMeshInputs splits multi-material groups into separate primitives", 
   assert.equal(entries.length, 2);
   assert.equal(entries[0].name, "multi[0]");
   assert.equal(entries[1].name, "multi[1]");
+  assert.equal(entries[0].materialIndex, 0);
+  assert.equal(entries[1].materialIndex, 1);
+  assert.equal(entries[0].material, mesh.material[0]);
+  assert.equal(entries[1].material, mesh.material[1]);
   assert.deepEqual(Array.from(entries[0].input.indices), [0, 1, 2]);
   assert.deepEqual(Array.from(entries[1].input.indices), [2, 1, 3]);
+});
+
+test("single-material groups resolve to material index 0", () => {
+  const root = new THREE.Group();
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial()
+  );
+  root.add(mesh);
+  const entries = extractMeshInputs(root);
+  assert.equal(entries.length, 6);
+  for (const entry of entries) {
+    assert.equal(entry.materialIndex, 0);
+    assert.equal(entry.material, mesh.material);
+  }
 });
 
 test("extractMeshInputs computes normals when geometry has none", () => {

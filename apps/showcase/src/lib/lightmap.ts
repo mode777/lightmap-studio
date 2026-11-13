@@ -1,7 +1,7 @@
 /**
- * Bake result application: float lightmap -> 8-bit canvas texture, atlas UVs
- * -> uv1 attribute, per-mesh material variants for display and export.
- * Orientation contract:
+ * Bake result application: float lightmap -> 8-bit canvas texture, unwrapped
+ * geometry -> one mesh per source object, per-mesh material variants for
+ * display and export. Orientation contract:
  *
  * - The studio's lightmap UVs put v=0 at array row 0 (its display recipe uses
  *   a DataTexture, whose default flipY is false).
@@ -23,8 +23,9 @@
  *   direct lighting - the showcase shows the occlusion itself instead.
  */
 import * as THREE from "three";
-import type { StudioResult } from "lightmap-studio";
+import type { StudioResult, UnwrappedScene } from "lightmap-studio";
 import type { ExtractedEntry } from "./extract.ts";
+import { rebuildBakedGeometry, type BakedPart } from "./rebuild.ts";
 
 /** Clamp a radiance sample to displayable 0..255 bytes (AO is 0..1). */
 export function lightmapToRgbaBytes(lightmap: Float32Array): Uint8ClampedArray<ArrayBuffer> {
@@ -61,6 +62,8 @@ function configureTexture(texture: THREE.CanvasTexture): THREE.CanvasTexture {
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
+  // Selects TEXCOORD_1 for both the viewport material and the exported
+  // occlusionTexture texCoord.
   texture.channel = 1;
   return texture;
 }
@@ -90,14 +93,39 @@ export interface BakedMaterialSet {
 
 export interface AppliedBake {
   textures: BakedTextures;
+  /** Unwrapped geometry layout, used by the atlas inspector. */
+  scene: UnwrappedScene;
+  /** Number of source meshes that received baked AO. */
   bakedMeshCount: number;
 }
 
+function materialsOf(material: THREE.Material | THREE.Material[]): THREE.Material[] {
+  return Array.isArray(material) ? material : [material];
+}
+
+function createBakedMaterialSet(
+  albedo: THREE.Material | THREE.Material[],
+  texture: THREE.CanvasTexture
+): BakedMaterialSet {
+  const toAo = (material: THREE.Material): THREE.Material => {
+    const clone = material.clone() as THREE.MeshStandardMaterial;
+    clone.aoMap = texture;
+    clone.aoMapIntensity = 1;
+    clone.needsUpdate = true;
+    return clone;
+  };
+  const toAoView = (): THREE.MeshBasicMaterial => new THREE.MeshBasicMaterial({ map: texture });
+  const ao = Array.isArray(albedo) ? albedo.map(toAo) : toAo(albedo);
+  const aoView = Array.isArray(albedo) ? albedo.map(toAoView) : toAoView();
+  return { albedo, ao, aoView };
+}
+
 /**
- * Write the bake result back onto the scene: atlas UVs to `uv1` and a
- * per-mesh material set on userData. Geometries shared by several baked
- * meshes are cloned per mesh so each gets its own atlas UVs; materials are
- * cloned per mesh so nothing leaks across objects.
+ * Write the bake result back onto the scene. Each source mesh gets ONE rebuilt
+ * geometry assembled from its baked primitives (see rebuild.ts): xatlas may
+ * duplicate seam vertices, so its UVs cannot be indexed by the source
+ * geometry's index buffer. Primitives keep their material groups; single
+ * material meshes stay a single glTF primitive.
  */
 export function applyBakeResult(entries: ExtractedEntry[], result: StudioResult): AppliedBake {
   const canvas = lightmapToCanvas(result.lightmap, result.width, result.height);
@@ -111,40 +139,54 @@ export function applyBakeResult(entries: ExtractedEntry[], result: StudioResult)
     );
   }
 
-  // Group entries by source geometry to detect sharing.
-  const byGeometry = new Map<THREE.BufferGeometry, number>();
-  for (const entry of entries) {
-    byGeometry.set(entry.geometry, (byGeometry.get(entry.geometry) ?? 0) + 1);
-  }
-
+  // Group the per-primitive bake results by their source mesh, preserving the
+  // traversal/group order used for material indices.
+  const partsByMesh = new Map<THREE.Mesh, BakedPart[]>();
   entries.forEach((entry, index) => {
-    const litObject = litObjects[index];
-    if (!litObject) throw new Error(`bake result is missing lit object ${index}`);
-    if ((byGeometry.get(entry.geometry) ?? 0) > 1) {
-      entry.mesh.geometry = entry.geometry.clone();
-    }
-    entry.mesh.geometry.setAttribute(
-      "uv1",
-      new THREE.BufferAttribute(new Float32Array(litObject.uvs), 2)
-    );
-
-    const albedo = entry.mesh.material;
-    const toStandard = (material: THREE.Material): THREE.MeshStandardMaterial => {
-      const clone = material.clone() as THREE.MeshStandardMaterial;
-      clone.aoMap = texture;
-      clone.aoMapIntensity = 1;
-      clone.needsUpdate = true;
-      return clone;
-    };
-    const ao = Array.isArray(albedo) ? albedo.map(toStandard) : toStandard(albedo);
-    const toAoView = (): THREE.MeshBasicMaterial => new THREE.MeshBasicMaterial({ map: texture });
-    const aoView = Array.isArray(albedo) ? albedo.map(toAoView) : toAoView();
-    const set: BakedMaterialSet = { albedo, ao, aoView };
-    entry.mesh.userData.bakedMaterials = set;
-    entry.mesh.material = aoView;
+    const unwrapped = litObjects[index];
+    if (!unwrapped) throw new Error(`bake result is missing lit object ${index}`);
+    const part: BakedPart = { entry, unwrapped };
+    const parts = partsByMesh.get(entry.mesh);
+    if (parts) parts.push(part);
+    else partsByMesh.set(entry.mesh, [part]);
   });
 
-  return { textures: { texture, canvas }, bakedMeshCount: entries.length };
+  const oldTextures = new Set<THREE.Texture>();
+  let bakedMeshCount = 0;
+
+  for (const [mesh, parts] of partsByMesh) {
+    const previous = bakedMaterialsOf(mesh);
+    const albedo = previous?.albedo ?? mesh.material;
+    const multiMaterial = Array.isArray(albedo);
+    const sourceGeometry = parts[0]!.entry.geometry;
+    const previousGeometry = mesh.geometry;
+
+    mesh.geometry = rebuildBakedGeometry(parts, multiMaterial);
+    // On a re-bake the active geometry is the previous rebuilt one; the
+    // original source geometry stays alive on the entry for the next bake.
+    if (previous && previousGeometry !== sourceGeometry) previousGeometry.dispose();
+
+    const set = createBakedMaterialSet(albedo, texture);
+    mesh.userData.bakedMaterials = set;
+    mesh.material = set.aoView;
+
+    if (previous) {
+      for (const material of materialsOf(previous.ao)) material.dispose();
+      for (const material of materialsOf(previous.aoView)) material.dispose();
+      for (const material of materialsOf(previous.aoView)) {
+        if (material instanceof THREE.MeshBasicMaterial && material.map) {
+          oldTextures.add(material.map);
+        }
+      }
+    }
+    bakedMeshCount += 1;
+  }
+
+  // Disposing the texture after the old materials keeps disposal idempotent
+  // when a rebake replaced the shared atlas.
+  for (const old of oldTextures) old.dispose();
+
+  return { textures: { texture, canvas }, scene: result.scene, bakedMeshCount };
 }
 
 /** The baked material set attached to a mesh, if any. */

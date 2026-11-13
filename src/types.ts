@@ -90,6 +90,12 @@ export interface UnwrappedObject {
   indices: Uint32Array;
   /** Chart index for each output vertex. */
   charts: Uint32Array;
+  /**
+   * Input vertex index for each output vertex. xatlas duplicates vertices at
+   * chart seams, so this is the mapping consumers need to carry per-vertex
+   * attributes (TEXCOORD_0, colors, skin data, ...) onto the unwrapped mesh.
+   */
+  xref: Uint32Array;
   albedo: Vec3;
   triangleCount: number;
   chartCount: number;
