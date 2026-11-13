@@ -68,11 +68,15 @@ The application SHALL bake ambient occlusion for the active document through the
 - **THEN** the application refuses to start a second concurrent bake
 
 ### Requirement: Baked AO preview
-After a bake completes, the application SHALL offer a display mode that shows the baked ambient occlusion on the geometry in the viewport, and SHALL allow returning to the albedo display without re-baking.
+After a bake completes, the application SHALL offer a three-way display switch in the 3D view: albedo only, AO only, or both. Both SHALL be the default after a bake, and switching between modes SHALL NOT re-bake.
 
-#### Scenario: Toggle AO preview
-- **WHEN** the user switches the display mode to AO after a completed bake
-- **THEN** the viewport shows the geometry shaded with the baked occlusion texture, and switching back restores the albedo view
+#### Scenario: Default combined preview
+- **WHEN** a bake completes
+- **THEN** the viewport shows the albedo material multiplied by the baked ambient occlusion
+
+#### Scenario: Switch preview modes
+- **WHEN** the user selects albedo only, AO only, or both
+- **THEN** the viewport updates to the selected display without re-baking, and the switch marks the active mode
 
 ### Requirement: Atlas inspector tab
 The application SHALL provide a stage tab that displays the baked lightmap atlas with the unwrapped chart outlines and atlas metadata (dimensions, chart count, utilization). The tab SHALL become available after a bake without re-baking, and switching between the 3D and atlas tabs SHALL preserve the active document, bake result and camera state.

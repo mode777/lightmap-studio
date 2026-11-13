@@ -368,7 +368,14 @@ async function main() {
 
     const stateAfterBake = await page.evaluate(() => window.__showcase.state());
     if (!stateAfterBake.hasUv1) throw new Error("no uv1 attribute after bake");
-    if (stateAfterBake.displayMode !== "ao") throw new Error("AO display mode not active after bake");
+    if (stateAfterBake.displayMode !== "both") {
+      throw new Error(`default display mode is ${stateAfterBake.displayMode}, expected both`);
+    }
+    if (!stateAfterBake.materials.every((material) => material.aoMap)) {
+      throw new Error(
+        `combined display materials are missing aoMap: ${JSON.stringify(stateAfterBake.materials)}`
+      );
+    }
     const titleBarExportEnabled = await page.evaluate(() => {
       const button = document.querySelector('[data-titlebar-action="export"]');
       return button instanceof HTMLButtonElement && !button.disabled;
@@ -401,27 +408,29 @@ async function main() {
       throw new Error(`not enough floor UV samples: ${JSON.stringify(uvSamples)}`);
     }
 
-    // 5c. Display toggle without re-baking, via the display dropdown.
-    await shot("02-ao-after-bake.png");
-    // options are [albedo, ao], current is "ao" after the bake
-    await page.click('vscode-single-select[data-form-control="display"]');
-    await page.keyboard.press("ArrowUp"); // ao -> albedo
-    await page.keyboard.press("Enter");
+    // 5c. Display switch in the main 3D view, without re-baking.
+    await shot("02-both-after-bake.png");
+    await page.click('[data-view-mode="albedo"]');
     await page.waitForFunction(
       "window.__showcase.state().displayMode === 'albedo'",
       { timeout: 5_000, polling: 100 }
     );
     await new Promise((resolve) => setTimeout(resolve, 300));
     await shot("03-albedo-after-bake.png");
-    await page.click('vscode-single-select[data-form-control="display"]');
-    await page.keyboard.press("ArrowDown"); // albedo -> ao
-    await page.keyboard.press("Enter");
+    await page.click('[data-view-mode="ao"]');
     await page.waitForFunction(
       "window.__showcase.state().displayMode === 'ao'",
       { timeout: 5_000, polling: 100 }
     );
     await new Promise((resolve) => setTimeout(resolve, 300));
-    await shot("04-ao-again.png");
+    await shot("04-ao-after-bake.png");
+    await page.click('[data-view-mode="both"]');
+    await page.waitForFunction(
+      "window.__showcase.state().displayMode === 'both'",
+      { timeout: 5_000, polling: 100 }
+    );
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    console.log("[showcase:smoke] PASS albedo/AO/both display switch (both default)");
     // Dump the raw atlas so chart-level artifacts can be diagnosed offline.
     if (SCREENSHOT_DIR) {
       const atlasDataUrl = await page.evaluate(() => window.__showcase.atlasDataUrl());
@@ -479,7 +488,6 @@ async function main() {
     console.log(
       `[showcase:smoke] PASS atlas tab (${atlasView.width}x${atlasView.height}, ${atlasView.meta})`
     );
-    console.log("[showcase:smoke] PASS albedo/AO display toggle");
 
     // 6. Export and assert the glTF structure.
     const exported = await page.evaluate(async () => {

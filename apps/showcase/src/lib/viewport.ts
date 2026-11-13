@@ -7,7 +7,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { bakedMaterialsOf } from "./lightmap.ts";
 
-export type DisplayMode = "albedo" | "ao";
+export type DisplayMode = "albedo" | "ao" | "both";
 
 export class Viewport {
   private readonly renderer: THREE.WebGLRenderer;
@@ -71,7 +71,12 @@ export class Viewport {
       if (!(object instanceof THREE.Mesh)) return;
       const set = bakedMaterialsOf(object);
       if (!set) return;
-      object.material = this.displayMode === "ao" ? set.aoView : set.albedo;
+      object.material =
+        this.displayMode === "ao"
+          ? set.aoView
+          : this.displayMode === "both"
+            ? set.combined
+            : set.albedo;
     });
   }
 
@@ -143,6 +148,9 @@ function disposeObject(root: THREE.Object3D): void {
         collect(material);
       }
       for (const material of Array.isArray(set.aoView) ? set.aoView : [set.aoView]) {
+        collect(material);
+      }
+      for (const material of Array.isArray(set.combined) ? set.combined : [set.combined]) {
         collect(material);
       }
     }

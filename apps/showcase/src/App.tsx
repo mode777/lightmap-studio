@@ -39,6 +39,16 @@ import { AtlasInspector } from "./AtlasInspector.tsx";
 type BakeStatus = "idle" | "running" | "done" | "failed";
 type StageTab = "viewport" | "atlas";
 
+const DISPLAY_MODES: ReadonlyArray<{
+  id: DisplayMode;
+  label: string;
+  description: string;
+}> = [
+  { id: "albedo", label: "Albedo", description: "Show the original albedo material only" },
+  { id: "ao", label: "AO", description: "Show the baked ambient occlusion only" },
+  { id: "both", label: "Both", description: "Show albedo multiplied by baked ambient occlusion" }
+];
+
 interface TextureStats {
   min: number;
   max: number;
@@ -55,7 +65,7 @@ export function App() {
   const [bakeStatus, setBakeStatus] = useState<BakeStatus>("idle");
   const [bakeMessage, setBakeMessage] = useState<string | null>(null);
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
-  const [displayMode, setDisplayMode] = useState<DisplayMode>("albedo");
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("both");
   const [atlasSize, setAtlasSize] = useState(1024);
   const [padding, setPadding] = useState(8);
   const [quality, setQuality] = useState<(typeof QUALITY_PRESETS)[number]>("preview");
@@ -70,7 +80,7 @@ export function App() {
   const droppedFilesRef = useRef<DroppedFile[]>([]);
   const activeRef = useRef<ActiveDocument | null>(null);
   const bakeStatusRef = useRef<BakeStatus>("idle");
-  const displayModeRef = useRef<DisplayMode>("albedo");
+  const displayModeRef = useRef<DisplayMode>("both");
   const appliedRef = useRef<AppliedBake | null>(null);
   const messagesRef = useRef<string[]>([]);
   const bakingRef = useRef(false);
@@ -146,11 +156,10 @@ export function App() {
       else if (kind === "padding") applyPadding(Number(value));
       else if (kind === "quality") applyQuality(value as QualityPreset);
       else if (kind === "bounces") applyBounces(Number(value));
-      else if (kind === "display") changeDisplayMode(value as DisplayMode);
     };
     document.addEventListener("change", onChange, true);
     return () => document.removeEventListener("change", onChange, true);
-  }, [applyAtlasSize, applyBounces, applyPadding, applyQuality, changeDisplayMode]);
+  }, [applyAtlasSize, applyBounces, applyPadding, applyQuality]);
 
   // Viewport lifecycle.
   useEffect(() => {
@@ -200,7 +209,7 @@ export function App() {
         setStatus("idle");
         setBakeMessage(null);
         setProgressLabel(null);
-        changeDisplayMode("albedo");
+        changeDisplayMode("both");
         viewportRef.current?.setScene(parsed.scene);
         // The viewport disposes the active geometry/material graph; source
         // geometries kept on the old entries for re-bakes need their own pass.
@@ -356,7 +365,7 @@ export function App() {
           `Ignored ${skipped} degenerate triangle(s) that xatlas could not chart; the rest of the document baked normally.`
         );
       }
-      changeDisplayMode("ao");
+      changeDisplayMode("both");
       setStatus("done");
       setProgressLabel(null);
       return textureStats(applied.textures.canvas);
@@ -600,7 +609,13 @@ export function App() {
       : bakeStatus === "failed"
         ? (bakeMessage ?? "Bake failed")
         : bakeStatus === "done"
-          ? `AO baked (${displayMode === "ao" ? "showing AO" : "showing albedo"})`
+          ? `AO baked (${
+              displayMode === "ao"
+                ? "showing AO"
+                : displayMode === "both"
+                  ? "showing albedo + AO"
+                  : "showing albedo"
+            })`
           : "Ready";
 
   const tree = documentTree;
@@ -784,20 +799,6 @@ export function App() {
                       Indirect light bounces. AO needs only 1 (direct sky).
                     </vscode-form-helper>
                   </vscode-form-group>
-                  <vscode-form-group variant="settings-group">
-                    <vscode-label>Display</vscode-label>
-                    <vscode-single-select
-                      data-form-control="display"
-                      value={displayMode}
-                      disabled={bakeStatus !== "done"}
-                    >
-                      <vscode-option value="albedo">albedo</vscode-option>
-                      <vscode-option value="ao">ambient occlusion</vscode-option>
-                    </vscode-single-select>
-                    <vscode-form-helper>
-                      View the baked occlusion without re-baking.
-                    </vscode-form-helper>
-                  </vscode-form-group>
                 </vscode-form-container>
                 <div className="actions-row">
                   <vscode-button
@@ -878,6 +879,32 @@ export function App() {
             data-stage-panel="viewport"
           >
             <div className="viewport-host" ref={viewportHostRef}>
+              {activeName !== null ? (
+                <div
+                  className="viewport-mode-switch"
+                  role="group"
+                  aria-label="Display mode"
+                >
+                  {DISPLAY_MODES.map((mode) => (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      className={displayMode === mode.id ? "active" : undefined}
+                      data-view-mode={mode.id}
+                      aria-pressed={displayMode === mode.id}
+                      title={
+                        bakeStatus === "done"
+                          ? mode.description
+                          : "Bake AO to switch display modes"
+                      }
+                      disabled={bakeStatus !== "done"}
+                      onClick={() => changeDisplayMode(mode.id)}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               {activeName === null ? (
                 <div className="empty-viewport overlay">
                   Drop a .glb or .gltf document to begin, or load the sample scene from the sidebar.

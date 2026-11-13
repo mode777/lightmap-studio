@@ -209,7 +209,8 @@ emissive geometry and point proxies.
 A browser showcase lives in [`apps/showcase`](apps/showcase): import `.glb` /
 `.gltf` documents (plus their `.bin` and texture files) with the title-bar
 **Import** action or by dropping them onto the page, inspect them in a
-viewport, bake **ambient occlusion** into an atlas lightmap, and export the
+viewport, switch between **albedo**, **AO** and **combined** (both by
+default), bake **ambient occlusion** into an atlas lightmap, and export the
 document back with the title-bar **Export** action and the baked AO embedded
 as a standard glTF `occlusionTexture` sampled on `TEXCOORD_1`. A **Lightmap
 Atlas** tab shows the baked atlas with the unwrapped chart outlines and atlas

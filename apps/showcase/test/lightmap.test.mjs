@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { lightmapToRgbaBytes } from "../src/lib/lightmap.ts";
+import * as THREE from "three";
+import { createBakedMaterialSet, lightmapToRgbaBytes } from "../src/lib/lightmap.ts";
 
 test("lightmapToRgbaBytes clamps, replicates R to RGB and writes opaque alpha", () => {
   // Two texels: radiance -0.5 (clamps to black) and 1.25 (clamps to white).
@@ -19,4 +20,43 @@ test("lightmapToRgbaBytes keeps mid values linear (no gamma applied)", () => {
   assert.equal(bytes[1], 128);
   assert.equal(bytes[2], 128);
   assert.equal(bytes[3], 255);
+});
+
+test("combined view keeps the albedo material and adds AO on TEXCOORD_1", () => {
+  const albedoTexture = new THREE.Texture();
+  albedoTexture.channel = 0;
+  const aoTexture = new THREE.Texture();
+  aoTexture.channel = 1;
+  const source = new THREE.MeshStandardMaterial({
+    color: 0x808080,
+    map: albedoTexture,
+    transparent: true,
+    opacity: 0.75,
+    side: THREE.DoubleSide
+  });
+
+  const set = createBakedMaterialSet(source, aoTexture);
+  assert.ok(set.combined instanceof THREE.MeshBasicMaterial);
+  assert.equal(set.combined.map, albedoTexture);
+  assert.equal(set.combined.aoMap, aoTexture);
+  assert.equal(set.combined.aoMapIntensity, 1);
+  assert.equal(set.combined.color.getHex(), source.color.getHex());
+  assert.equal(set.combined.side, THREE.DoubleSide);
+  assert.equal(set.combined.transparent, true);
+  assert.equal(set.combined.opacity, 0.75);
+});
+
+test("combined view mirrors material arrays", () => {
+  const aoTexture = new THREE.Texture();
+  aoTexture.channel = 1;
+  const source = [
+    new THREE.MeshStandardMaterial({ color: 0xff0000 }),
+    new THREE.MeshStandardMaterial({ color: 0x00ff00 })
+  ];
+  const set = createBakedMaterialSet(source, aoTexture);
+  assert.ok(Array.isArray(set.combined));
+  assert.equal(set.combined.length, 2);
+  assert.equal(set.combined[0].aoMap, aoTexture);
+  assert.equal(set.combined[1].aoMap, aoTexture);
+  assert.equal(set.combined[0].color.getHex(), source[0].color.getHex());
 });

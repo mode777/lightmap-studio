@@ -8,7 +8,7 @@ The library ships as a three-free npm package with a README recipe but no runnab
 
 - Add `apps/showcase/`: a self-contained Vite + React application (own `package.json` and lockfile, not an npm workspace) that:
   - accepts drag-and-drop of one or more `.glb` / `.gltf` documents plus their external `.bin` / texture files (also folder drops), and shows the dropped files in a tree view;
-  - loads a selected document with three.js `GLTFLoader` and renders it in a WebGL2 viewport (orbit controls, albedo / AO display toggle);
+  - loads a selected document with three.js `GLTFLoader` and renders it in a WebGL2 viewport (orbit controls, albedo / AO / combined display switch, both by default);
   - bakes ambient occlusion with `lightmap-studio` into an atlas lightmap (uniform white sky environment, single bounce);
   - rebuilds each baked mesh from the unwrapped primitives (using the library's `xref` mapping) so the lightmap UVs line up with the rendered triangles, and adds a Lightmap Atlas tab with chart outlines for inspecting the unwrap;
   - exports the document back as `.glb` (or `.gltf` for `.gltf` input) with the baked AO embedded: atlas UVs written to `TEXCOORD_1`, AO texture as `occlusionTexture`, via three.js `GLTFExporter`.

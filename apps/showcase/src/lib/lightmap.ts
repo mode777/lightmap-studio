@@ -89,6 +89,8 @@ export interface BakedMaterialSet {
   ao: THREE.Material | THREE.Material[];
   /** Unlit raw-AO display material(s). */
   aoView: THREE.Material | THREE.Material[];
+  /** Unlit albedo * AO display material(s). */
+  combined: THREE.Material | THREE.Material[];
 }
 
 export interface AppliedBake {
@@ -103,7 +105,39 @@ function materialsOf(material: THREE.Material | THREE.Material[]): THREE.Materia
   return Array.isArray(material) ? material : [material];
 }
 
-function createBakedMaterialSet(
+interface VisualMaterial {
+  color?: THREE.Color;
+  map?: THREE.Texture | null;
+  alphaMap?: THREE.Texture | null;
+  vertexColors?: boolean;
+}
+
+/**
+ * Unlit albedo * AO. MeshBasicMaterial supports both `map` (TEXCOORD_0) and
+ * `aoMap` (TEXCOORD_1), so the shader gives us the product without custom GLSL.
+ */
+function toCombinedView(material: THREE.Material, texture: THREE.CanvasTexture): THREE.MeshBasicMaterial {
+  const source = material as THREE.Material & VisualMaterial;
+  const combined = new THREE.MeshBasicMaterial({
+    color: source.color ? source.color.clone() : 0xffffff,
+    map: source.map ?? null,
+    alphaMap: source.alphaMap ?? null,
+    vertexColors: source.vertexColors ?? false,
+    transparent: material.transparent,
+    opacity: material.opacity,
+    alphaTest: material.alphaTest,
+    side: material.side,
+    depthTest: material.depthTest,
+    depthWrite: material.depthWrite,
+    aoMap: texture,
+    aoMapIntensity: 1
+  });
+  combined.name = `${material.name} (albedo + AO)`;
+  combined.toneMapped = material.toneMapped;
+  return combined;
+}
+
+export function createBakedMaterialSet(
   albedo: THREE.Material | THREE.Material[],
   texture: THREE.CanvasTexture
 ): BakedMaterialSet {
@@ -117,7 +151,10 @@ function createBakedMaterialSet(
   const toAoView = (): THREE.MeshBasicMaterial => new THREE.MeshBasicMaterial({ map: texture });
   const ao = Array.isArray(albedo) ? albedo.map(toAo) : toAo(albedo);
   const aoView = Array.isArray(albedo) ? albedo.map(toAoView) : toAoView();
-  return { albedo, ao, aoView };
+  const combined = Array.isArray(albedo)
+    ? albedo.map((material) => toCombinedView(material, texture))
+    : toCombinedView(albedo, texture);
+  return { albedo, ao, aoView, combined };
 }
 
 /**
@@ -168,11 +205,12 @@ export function applyBakeResult(entries: ExtractedEntry[], result: StudioResult)
 
     const set = createBakedMaterialSet(albedo, texture);
     mesh.userData.bakedMaterials = set;
-    mesh.material = set.aoView;
+    mesh.material = set.combined;
 
     if (previous) {
       for (const material of materialsOf(previous.ao)) material.dispose();
       for (const material of materialsOf(previous.aoView)) material.dispose();
+      for (const material of materialsOf(previous.combined)) material.dispose();
       for (const material of materialsOf(previous.aoView)) {
         if (material instanceof THREE.MeshBasicMaterial && material.map) {
           oldTextures.add(material.map);
