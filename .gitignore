@@ -1,3 +1,8 @@
 /node_modules
 /dist
 /*.tgz
+
+# Showcase application (self-contained npm project)
+/apps/showcase/node_modules
+/apps/showcase/dist
+/apps/showcase/public/codicons

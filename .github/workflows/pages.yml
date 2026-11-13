@@ -1,0 +1,94 @@
+name: Pages
+
+on:
+  push:
+    branches: [Main]
+    paths:
+      - 'src/**'
+      - 'apps/showcase/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      # Library gates first: the showcase consumes the library through its
+      # built dist/, and a broken library must never reach Pages.
+      - name: Install library dependencies
+        run: npm ci
+
+      - name: Build library
+        run: npm run build
+
+      - name: Typecheck library
+        run: npm run typecheck
+
+      - name: Library test suites
+        run: npm test
+
+      # Showcase build + smoke: bake and export verified in headless Chrome
+      # (SwiftShader) before anything is published.
+      - name: Install showcase dependencies
+        working-directory: apps/showcase
+        run: npm ci --no-audit --no-fund
+
+      - name: Build showcase
+        working-directory: apps/showcase
+        run: npm run build
+
+      - name: Install chrome-headless-shell
+        id: chrome
+        run: |
+          INSTALLED="$(npx --yes @puppeteer/browsers install chrome-headless-shell@131.0.6778.264 --path /tmp/chrome | awk '{print $NF}' | tail -n 1)"
+          if [ -x "$INSTALLED" ]; then
+            CHROME_SHELL="$INSTALLED"
+          else
+            CHROME_SHELL="$(find "$INSTALLED" -type f -name chrome-headless-shell | head -n 1)"
+          fi
+          test -n "$CHROME_SHELL"
+          test -x "$CHROME_SHELL"
+          echo "path=$CHROME_SHELL" >> "$GITHUB_OUTPUT"
+          echo "chrome-headless-shell: $CHROME_SHELL"
+
+      - name: Showcase smoke test
+        working-directory: apps/showcase
+        run: npm run test:smoke
+        env:
+          CHROME_SHELL_PATH: ${{ steps.chrome.outputs.path }}
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/showcase/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

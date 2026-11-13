@@ -194,6 +194,44 @@ Use `result.scene.litObjects[i].uvs` as the lightmap UV attribute and multiply
 the material albedo by the texture. Use `result.scene.emissiveObjects` for
 emissive geometry and point proxies.
 
+## Showcase
+
+A browser showcase lives in [`apps/showcase`](apps/showcase): drop `.glb` /
+`.gltf` documents (plus their `.bin` and texture files) onto the page, inspect
+them in a viewport, bake **ambient occlusion** into an atlas lightmap, and
+export the document back with the baked AO embedded as a standard glTF
+`occlusionTexture` sampled on `TEXCOORD_1`. The published instance is served
+at `https://mode777.github.io/lightmap-studio/` via GitHub Actions.
+
+Scope notes: the showcase bakes AO only (a uniform white sky with a single
+bounce), so the export is readable by any glTF 2.0 viewer. Full-radiance
+lightmaps have no ratified glTF destination and are not exported. DRACO,
+KTX2 and meshopt compressed documents are rejected.
+
+To run it locally (the app consumes this repository's built `dist/`, so build
+the library first):
+
+```sh
+npm ci && npm run build                 # repository root
+cd apps/showcase
+npm install                             # also copies codicons into public/
+npm run dev                             # http://localhost:5173/lightmap-studio/
+```
+
+The application has its own checks:
+
+```sh
+npm run typecheck
+npm test                                # pure-helper unit tests (node --test)
+CHROME_SHELL_PATH=... npm run test:smoke  # headless bake + export gate
+```
+
+The smoke gate generates a sample document at runtime, bakes and exports it
+in headless Chrome with SwiftShader WebGL, and asserts the exported GLB
+carries `occlusionTexture` on a second texture-coordinate set with the base
+color texture preserved. CI deploys to Pages only after the library gates and
+this smoke pass.
+
 ## Build and test
 
 ```sh

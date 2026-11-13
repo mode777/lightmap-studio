@@ -1,0 +1,35 @@
+{
+  "name": "lightmap-studio-showcase",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/*.test.mjs\"",
+    "test:smoke": "node scripts/smoke.mjs",
+    "postinstall": "node scripts/copy-codicons.mjs"
+  },
+  "dependencies": {
+    "@vscode-elements/elements": "^2.5.1",
+    "@vscode/codicons": "^0.0.40",
+    "lightmap-studio": "file:../../",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "^0.180.0",
+    "vscode-workbench": "0.1.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/three": "^0.180.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "puppeteer-core": "^24.43.1",
+    "typescript": "^5.8.2",
+    "vite": "6.4.5"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

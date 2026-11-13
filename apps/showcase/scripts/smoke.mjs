@@ -1,0 +1,447 @@
+// Build the showcase application and verify it end to end in headless Chrome:
+//   1. vite build the app
+//   2. assert both wasm assets (lightmapper + xatlas) are emitted
+//   3. serve dist/ on a plain static server (no custom headers)
+//   4. load the page in chrome-headless-shell with SwiftShader WebGL
+//   5. drive window.__showcase: generate a sample .glb, load, bake, export
+//   6. assert the export is a valid GLB with occlusionTexture on TEXCOORD_1
+//      and preserved TEXCOORD_0 / base color
+//   7. exercise the negative paths: missing part names the file, unsupported
+//      compression names the extension, unsupported files are skipped
+//
+//   npm run test:smoke
+//   CHROME_SHELL_PATH=/path/to/chrome-headless-shell npm run test:smoke
+
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createServer } from "node:http";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import puppeteer from "puppeteer-core";
+import { build } from "vite";
+
+const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const DIST_ROOT = path.join(APP_ROOT, "dist");
+
+const CHROME_CANDIDATES = [
+  process.env.CHROME_SHELL_PATH,
+  path.join(
+    os.homedir(),
+    "browsers",
+    "chrome-headless-shell",
+    "linux-131.0.6778.264",
+    "chrome-headless-shell-linux64",
+    "chrome-headless-shell"
+  ),
+  path.join(
+    os.homedir(),
+    ".cache",
+    "ms-playwright",
+    "chromium_headless_shell-1248",
+    "chrome-headless-shell-linux64",
+    "chrome-headless-shell"
+  )
+].filter(Boolean);
+
+function chromeShellPath() {
+  const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
+  if (!found) {
+    throw new Error(
+      `chrome-headless-shell not found; set CHROME_SHELL_PATH (tried ${CHROME_CANDIDATES.join(", ")})`
+    );
+  }
+  return found;
+}
+
+function wasmFiles(directory) {
+  const files = [];
+  for (const entry of readdirSync(directory)) {
+    const pathname = path.join(directory, entry);
+    if (statSync(pathname).isDirectory()) files.push(...wasmFiles(pathname));
+    else if (entry.endsWith(".wasm")) files.push(pathname);
+  }
+  return files;
+}
+
+function contentTypeFor(extension) {
+  switch (extension) {
+    case ".wasm":
+      return "application/wasm";
+    case ".js":
+    case ".mjs":
+      return "text/javascript";
+    case ".css":
+      return "text/css";
+    case ".html":
+      return "text/html";
+    case ".json":
+      return "application/json";
+    case ".png":
+      return "image/png";
+    case ".ttf":
+      return "font/ttf";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+const BASE_PREFIX = "/lightmap-studio";
+
+function serveDirectory(root) {
+  const server = createServer((request, response) => {
+    let url = decodeURIComponent((request.url ?? "/").split("?")[0]);
+    // GitHub Pages serves the artifact under /lightmap-studio/; mirror that.
+    if (url === BASE_PREFIX || url.startsWith(`${BASE_PREFIX}/`)) {
+      url = url.slice(BASE_PREFIX.length) || "/";
+    }
+    let file = path.join(root, url === "/" ? "index.html" : url);
+    if (!file.startsWith(root)) {
+      response.writeHead(403).end();
+      return;
+    }
+    if (!existsSync(file) || statSync(file).isDirectory()) {
+      file = path.join(root, "index.html");
+    }
+    response.writeHead(200, { "content-type": contentTypeFor(path.extname(file)) });
+    response.end(readFileSync(file));
+  });
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve(server));
+  });
+}
+
+/** Parse a GLB into its JSON chunk for assertions. */
+function parseGlbJson(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const magic = view.getUint32(0, true);
+  if (magic !== 0x46546c67) throw new Error("export is not a GLB container");
+  const version = view.getUint32(4, true);
+  if (version !== 2) throw new Error(`export has unsupported GLB version ${version}`);
+  const chunk0Length = view.getUint32(12, true);
+  const chunk0Type = view.getUint32(16, true);
+  if (chunk0Type !== 0x4e4f534a) throw new Error("export GLB has no JSON chunk");
+  return JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + chunk0Length)));
+}
+
+async function main() {
+  const chrome = chromeShellPath();
+  console.log("[showcase:smoke] building app...");
+  await build({
+    root: APP_ROOT,
+    configFile: path.join(APP_ROOT, "vite.config.ts"),
+    logLevel: "error",
+    build: {
+      outDir: DIST_ROOT,
+      emptyOutDir: true,
+      assetsInlineLimit: 0,
+      target: "es2022"
+    }
+  });
+
+  const names = wasmFiles(DIST_ROOT).map((file) => path.basename(file));
+  const hasLightmapper = names.some((name) => name.includes("lightmapper"));
+  const hasXatlas = names.some((name) => name.includes("xatlas"));
+  for (const name of names) console.log(`[showcase:smoke] emitted ${name}`);
+  if (!hasLightmapper || !hasXatlas) {
+    throw new Error("missing one of lightmapper.wasm / xatlas.wasm in app build");
+  }
+  console.log("[showcase:smoke] PASS both wasm assets emitted");
+
+  const server = await serveDirectory(DIST_ROOT);
+  let browser = null;
+  try {
+    const { port } = server.address();
+    const url = `http://127.0.0.1:${port}/lightmap-studio/`;
+    browser = await puppeteer.launch({
+      executablePath: chrome,
+      headless: "shell",
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-gpu",
+        "--use-angle=swiftshader",
+        "--enable-unsafe-swiftshader",
+        "--ignore-gpu-blocklist",
+        "--mute-audio",
+        "--hide-scrollbars"
+      ]
+    });
+    const page = await browser.newPage();
+    const pageErrors = [];
+    page.on("pageerror", (error) => pageErrors.push(error));
+    page.on("console", (message) => {
+      if (message.type() === "error") console.error(`[showcase:smoke] console: ${message.text()}`);
+    });
+
+    await page.goto(url, { waitUntil: "load", timeout: 30_000 });
+    await page.waitForFunction("window.__showcase !== undefined", { timeout: 30_000, polling: 200 });
+
+    // 1. Load the generated sample document through the ingestion path.
+    const loaded = await page.evaluate(async () => {
+      const file = await window.__showcase.generateSampleDocument();
+      await window.__showcase.loadFiles([file]);
+      return window.__showcase.state();
+    });
+    if (!loaded.active || !loaded.active.includes("sample-scene.glb")) {
+      throw new Error(`sample document is not active after load: ${loaded.active}`);
+    }
+    console.log(`[showcase:smoke] PASS loaded and activated ${loaded.active}`);
+
+    // 2. Unsupported file types are skipped, never loaded silently.
+    const skipped = await page.evaluate(async () => {
+      const result = await window.__showcase.loadFiles([
+        new File(["not a model"], "notes.txt", { type: "text/plain" })
+      ]);
+      return { result, state: window.__showcase.state() };
+    });
+    if (skipped.result.skipped.length !== 1 || !skipped.result.skipped[0].includes("notes.txt")) {
+      throw new Error(`unsupported file was not reported as skipped: ${JSON.stringify(skipped.result)}`);
+    }
+    console.log("[showcase:smoke] PASS unsupported file reported as skipped");
+
+    // 3. Missing document part fails with the file named; previous doc stays active.
+    await page.evaluate(async () => {
+      const gltf = JSON.stringify({
+        asset: { version: "2.0" },
+        scene: 0,
+        scenes: [{ nodes: [0] }],
+        nodes: [{ mesh: 0 }],
+        meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+        accessors: [
+          {
+            bufferView: 0,
+            componentType: 5126,
+            count: 3,
+            type: "VEC3",
+            min: [0, 0, 0],
+            max: [1, 1, 1]
+          }
+        ],
+        bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }],
+        buffers: [{ uri: "definitely-missing.bin", byteLength: 36 }]
+      });
+      await window.__showcase.loadFiles([
+        new File([gltf], "missing-part.gltf", { type: "model/gltf+json" })
+      ]);
+    });
+    const afterMissing = await page.evaluate(() => window.__showcase.state());
+    if (!afterMissing.messages.some((message) => message.includes("definitely-missing.bin"))) {
+      throw new Error(
+        `load failure did not name the missing buffer: ${JSON.stringify(afterMissing.messages)}`
+      );
+    }
+    if (!afterMissing.active.includes("sample-scene.glb")) {
+      throw new Error(`failed load changed the active document: ${afterMissing.active}`);
+    }
+    console.log("[showcase:smoke] PASS missing document part rejected with the file named");
+
+    // 4. Unsupported compression extension is rejected by name.
+    await page.evaluate(async () => {
+      const gltf = JSON.stringify({
+        asset: { version: "2.0" },
+        extensionsUsed: ["KHR_draco_mesh_compression"]
+      });
+      await window.__showcase.loadFiles([
+        new File([gltf], "draco.gltf", { type: "model/gltf+json" })
+      ]);
+    });
+    const afterDraco = await page.evaluate(() => window.__showcase.state());
+    if (!afterDraco.messages.some((message) => message.includes("KHR_draco_mesh_compression"))) {
+      throw new Error(
+        `compression rejection did not name the extension: ${JSON.stringify(afterDraco.messages)}`
+      );
+    }
+    console.log("[showcase:smoke] PASS unsupported compression rejected with the extension named");
+
+    // 5. Bake the sample scene.
+    const baked = await page.evaluate(() => window.__showcase.bake());
+    if (baked.error) throw new Error(`bake failed: ${baked.error}`);
+    if (baked.bakedMeshes !== 2) {
+      throw new Error(`expected 2 baked meshes (floor + occluder), got ${baked.bakedMeshes}`);
+    }
+    if (!(baked.ao.min < baked.ao.max)) {
+      throw new Error(`AO texture has no variation (min ${baked.ao.min}, max ${baked.ao.max})`);
+    }
+    if (baked.ao.max < 128) {
+      throw new Error(`AO texture never reaches lit values (max ${baked.ao.max})`);
+    }
+    console.log(
+      `[showcase:smoke] PASS baked ${baked.bakedMeshes} meshes (AO range ${baked.ao.min}..${baked.ao.max}, mean ${baked.ao.mean.toFixed(1)})`
+    );
+
+    const stateAfterBake = await page.evaluate(() => window.__showcase.state());
+    if (!stateAfterBake.hasUv1) throw new Error("no uv1 attribute after bake");
+    if (stateAfterBake.displayMode !== "ao") throw new Error("AO display mode not active after bake");
+    console.log(`[showcase:smoke] scene materials: ${JSON.stringify(stateAfterBake.materials)}`);
+
+    // 5c. Display toggle without re-baking.
+    await page.click("vscode-button.display-albedo");
+    await page.waitForFunction(
+      "window.__showcase.state().displayMode === 'albedo'",
+      { timeout: 5_000, polling: 100 }
+    );
+    await page.click("vscode-button.display-ao");
+    await page.waitForFunction(
+      "window.__showcase.state().displayMode === 'ao'",
+      { timeout: 5_000, polling: 100 }
+    );
+    console.log("[showcase:smoke] PASS albedo/AO display toggle");
+
+    // 6. Export and assert the glTF structure.
+    const exported = await page.evaluate(async () => {
+      const result = await window.__showcase.exportActiveDocument();
+      if (result.error) return result;
+      // Uint8Array does not survive evaluate() serialization; ship base64.
+      let binary = "";
+      for (let i = 0; i < result.bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...result.bytes.subarray(i, i + 0x8000));
+      }
+      return { name: result.name, base64: btoa(binary) };
+    });
+    if (exported.error) throw new Error(`export failed: ${exported.error}`);
+    if (exported.name !== "sample-scene.ao.glb") {
+      throw new Error(`unexpected export name ${exported.name}`);
+    }
+    const bytes = new Uint8Array(Buffer.from(exported.base64, "base64"));
+    const json = parseGlbJson(bytes);
+    console.log(`[showcase:smoke] PASS exported ${exported.name} (${bytes.length} bytes)`);
+    console.log(
+      `[showcase:smoke] materials: ${JSON.stringify(
+        (json.materials ?? []).map((material) => ({
+          name: material.name,
+          baseColor: material.pbrMetallicRoughness?.baseColorTexture?.index,
+          occlusion: material.occlusionTexture?.index
+        }))
+      )} textures=${JSON.stringify((json.textures ?? []).length)} images=${JSON.stringify((json.images ?? []).length)}`
+    );
+
+    const occlusionMaterials = (json.materials ?? []).filter(
+      (material) => material.occlusionTexture != null
+    );
+    if (occlusionMaterials.length === 0) {
+      throw new Error("no material carries occlusionTexture after export");
+    }
+    for (const material of occlusionMaterials) {
+      if (material.occlusionTexture.texCoord !== 1) {
+        throw new Error(
+          `occlusionTexture texCoord is ${material.occlusionTexture.texCoord}, expected 1`
+        );
+      }
+    }
+    console.log(
+      `[showcase:smoke] PASS ${occlusionMaterials.length} material(s) carry occlusionTexture on TEXCOORD_1`
+    );
+
+    const withUv1 = (json.meshes ?? []).filter((mesh) =>
+      mesh.primitives.some((primitive) => primitive.attributes.TEXCOORD_1 != null)
+    );
+    if (withUv1.length === 0) {
+      throw new Error("no exported mesh carries TEXCOORD_1");
+    }
+    console.log(`[showcase:smoke] PASS ${withUv1.length} mesh(es) carry TEXCOORD_1`);
+
+    const floorMaterial = (json.materials ?? []).find(
+      (material) => material.pbrMetallicRoughness?.baseColorTexture != null
+    );
+    if (!floorMaterial) throw new Error("base color texture was lost during export");
+    const baseTexCoord = floorMaterial.pbrMetallicRoughness.baseColorTexture.texCoord ?? 0;
+    if (baseTexCoord !== 0) {
+      throw new Error("base color texture no longer uses TEXCOORD_0");
+    }
+    if ((json.images ?? []).length < 2) {
+      throw new Error(
+        `expected at least 2 embedded images (base color + AO), got ${(json.images ?? []).length}`
+      );
+    }
+    console.log("[showcase:smoke] PASS base color texture preserved on TEXCOORD_0");
+
+    // 5b. Two valid documents: the tree activation switches the active scene.
+    await page.evaluate(async () => {
+      const file = await window.__showcase.generateSampleDocument();
+      const renamed = new File([await file.arrayBuffer()], "sample-two.glb", {
+        type: "model/gltf-binary"
+      });
+      await window.__showcase.loadFiles([renamed]);
+    });
+    const withTwo = await page.evaluate(() => window.__showcase.state());
+    if (!withTwo.active.includes("sample-two.glb")) {
+      throw new Error(`second document did not become active: ${withTwo.active}`);
+    }
+    await page.waitForSelector('vscode-tree-item[data-document-path="sample-scene.glb"]', {
+      visible: true,
+      timeout: 15_000
+    }).catch(async () => {
+      const probe = await page.evaluate(() => ({
+        collapsibles: document.querySelectorAll("vscode-collapsible").length,
+        trees: document.querySelectorAll("vscode-tree").length,
+        items: document.querySelectorAll("vscode-tree-item").length,
+        buttons: document.querySelectorAll("vscode-button").length,
+        sidebarHtml: document.querySelector(".explorer-body")?.innerHTML.slice(0, 1200) ?? "(no explorer body)"
+      }));
+      throw new Error(`tree item not found; DOM probe: ${JSON.stringify(probe, null, 2)}`);
+    });
+    await page.click('vscode-tree-item[data-document-path="sample-scene.glb"]');
+    // Instrument the event flow while waiting for the activation.
+    await page.evaluate(() => {
+      window.__treeEvents = [];
+      document.addEventListener(
+        "vsc-tree-select",
+        (event) => {
+          const item = event.detail?.selectedItems?.[0];
+          window.__treeEvents.push({
+            target: event.target?.tagName,
+            bubbles: event.bubbles,
+            detailKeys: event.detail ? Object.keys(event.detail) : null,
+            attr: item?.getAttribute?.("data-document-path"),
+            itemAttrs: item?.getAttributeNames?.()
+          });
+        },
+        true
+      );
+    });
+    await page.click('vscode-tree-item[data-document-path="sample-scene.glb"]');
+    await page.waitForFunction(
+      "window.__showcase.state().active.includes('sample-scene.glb')",
+      { timeout: 15_000, polling: 200 }
+    ).catch(async () => {
+      const diagnosis = await page.evaluate(() => ({
+        events: window.__treeEvents,
+        state: window.__showcase.state()
+      }));
+      throw new Error(`tree activation did not switch scenes: ${JSON.stringify(diagnosis)}`);
+    });
+    // Switching replaces the active scene; the bake belongs to the active
+    // document, so the reloaded document is unbaked until baked again.
+    await page.waitForFunction(
+      "window.__showcase.state().bakeStatus === 'idle'",
+      { timeout: 10_000, polling: 200 }
+    );
+    console.log("[showcase:smoke] PASS tree activation switches between documents");
+
+
+    if (pageErrors.length > 0) throw pageErrors[0];
+    console.log("SHOWCASE SMOKE PASS");
+    return true;
+  } finally {
+    if (browser) {
+      await Promise.race([
+        browser.close().catch((error) => console.error(`[showcase:smoke] close: ${error}`)),
+        new Promise((resolve) => setTimeout(resolve, 5_000))
+      ]);
+    }
+    if (server) {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  }
+}
+
+main()
+  .then((ok) => {
+    process.exitCode = ok ? 0 : 1;
+  })
+  .catch((error) => {
+    console.error(`[showcase:smoke] fatal: ${error.stack || error}`);
+    console.error("SHOWCASE SMOKE FAIL");
+    process.exitCode = 1;
+  });
