@@ -1,13 +1,16 @@
 /**
- * glTF export: serialize the document with the baked AO attached. The flipY
- * export texture replaces the preview texture on baked materials for the
- * duration of the parse; GLTFExporter then flips image rows at encode so the
+ * glTF export: serialize the document with the baked AO attached. Regardless
+ * of the current display mode, the PBR baked material set is attached for the
+ * duration of the parse, with the flipY export texture in place of the
+ * preview texture; GLTFExporter then flips image rows at encode so the
  * written image matches glTF's sampling of these UVs. TEXCOORD_0 and base
- * color are untouched.
+ * color are untouched. The bake is scene-global (the lightmapper's
+ * hemisphere pass occludes against the whole scene), stored in one shared
+ * atlas referenced by every baked material's occlusionTexture.
  */
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
-import { hasBakedAo } from "./lightmap.ts";
+import { bakedMaterialsOf, type BakedMaterialSet } from "./lightmap.ts";
 
 export function exportFileName(sourceName: string): string {
   const stem = sourceName.replace(/\.(glb|gltf)$/i, "");
@@ -23,9 +26,10 @@ export interface ExportResult {
 export async function exportDocument(
   root: THREE.Object3D,
   sourceName: string,
-  exportTexture: THREE.Texture
+  exportTexture: THREE.Texture,
+  previewTexture: THREE.Texture
 ): Promise<ExportResult> {
-  const restores = attachExportTexture(root, exportTexture);
+  const restores = attachBakedMaterials(root, exportTexture, previewTexture);
   const binary = !/\.gltf$/i.test(sourceName);
   try {
     const exporter = new GLTFExporter();
@@ -39,23 +43,35 @@ export async function exportDocument(
   }
 }
 
-function attachExportTexture(root: THREE.Object3D, exportTexture: THREE.Texture): Array<() => void> {
+function attachBakedMaterials(
+  root: THREE.Object3D,
+  exportTexture: THREE.Texture,
+  previewTexture: THREE.Texture
+): Array<() => void> {
   const restores: Array<() => void> = [];
-  const seen = new Set<THREE.Material>();
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    for (const material of materials) {
-      if (seen.has(material) || !hasBakedAo(material)) continue;
-      seen.add(material);
-      const previous = material.aoMap;
+    const set = bakedMaterialsOf(object);
+    if (!set) return;
+    const previousMaterial = object.material;
+    object.material = set.ao;
+    // Every standard material in the baked set points at the flipY=true
+    // texture for the encode run.
+    const aoMaterials: THREE.MeshStandardMaterial[] = (
+      Array.isArray(set.ao) ? set.ao : [set.ao]
+    ) as THREE.MeshStandardMaterial[];
+    const previousAoMaps = aoMaterials.map((material) => material.aoMap);
+    for (const material of aoMaterials) {
       material.aoMap = exportTexture;
       material.needsUpdate = true;
-      restores.push(() => {
-        material.aoMap = previous;
+    }
+    restores.push(() => {
+      object.material = previousMaterial;
+      aoMaterials.forEach((material, index) => {
+        material.aoMap = previousAoMaps[index] ?? previewTexture;
         material.needsUpdate = true;
       });
-    }
+    });
   });
   return restores;
 }
@@ -71,3 +87,5 @@ export function downloadResult(result: ExportResult): void {
   anchor.click();
   URL.revokeObjectURL(url);
 }
+
+export type { BakedMaterialSet };

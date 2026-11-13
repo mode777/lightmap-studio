@@ -8,16 +8,16 @@ import {
   errorMessage,
   QUALITY_PRESETS
 } from "./lib/baker.ts";
+import type { QualityPreset } from "lightmap-studio";
 import { buildFileTree, classifyFileName, type DroppedFile, type TreeDocument } from "./lib/drop.ts";
 import { filesFromDataTransfer } from "./lib/dropDom.ts";
 import { downloadResult, exportDocument } from "./lib/exporter.ts";
-import type { ExportOutcome } from "./lib/testHook.ts";
 import { extractMeshInputs } from "./lib/extract.ts";
 import { parseDocument } from "./lib/gltf.ts";
 import { applyBakeResult, type AppliedBake } from "./lib/lightmap.ts";
 import { buildSampleGlbFile } from "./lib/sample.ts";
 import { Viewport, type DisplayMode } from "./lib/viewport.ts";
-import { installTestHook, type ShowcaseHookState } from "./lib/testHook.ts";
+import { installTestHook, type ShowcaseHookState, type ExportOutcome } from "./lib/testHook.ts";
 import type { ActiveDocument } from "./lib/appState.ts";
 
 type BakeStatus = "idle" | "running" | "done" | "failed";
@@ -52,6 +52,10 @@ export function App() {
   const messagesRef = useRef<string[]>([]);
   const bakingRef = useRef(false);
   const busyRef = useRef(false);
+  const settingsRef = useRef<{ atlasSize: number; quality: QualityPreset }>({
+    atlasSize: 1024,
+    quality: "preview"
+  });
 
   const viewportHostRef = useRef<HTMLElement | null>(null);
   const viewportRef = useRef<Viewport | null>(null);
@@ -77,6 +81,33 @@ export function App() {
     setDisplayMode(mode);
     viewportRef.current?.setDisplayMode(mode);
   }, []);
+
+  const applyAtlasSize = useCallback((size: number) => {
+    settingsRef.current.atlasSize = size;
+    setAtlasSize(size);
+  }, []);
+
+  const applyQuality = useCallback((preset: QualityPreset) => {
+    settingsRef.current.quality = preset;
+    setQuality(preset);
+  }, []);
+
+  // Settings + display dropdowns: vscode-single-select dispatches a plain
+  // (non-bubbling) change event, so listen in the capture phase and route by
+  // the data-form-control marker.
+  useEffect(() => {
+    const onChange = (event: Event): void => {
+      const target = event.target as (HTMLElement & { value?: string }) | null;
+      const kind = target?.dataset?.formControl;
+      if (!kind) return;
+      const value = target?.value ?? "";
+      if (kind === "atlas") applyAtlasSize(Number(value));
+      else if (kind === "quality") applyQuality(value as QualityPreset);
+      else if (kind === "display") changeDisplayMode(value as DisplayMode);
+    };
+    document.addEventListener("change", onChange, true);
+    return () => document.removeEventListener("change", onChange, true);
+  }, [applyAtlasSize, applyQuality, changeDisplayMode]);
 
   // Viewport lifecycle.
   useEffect(() => {
@@ -240,7 +271,7 @@ export function App() {
     setBakeMessage(null);
     try {
       const result = await bakeAmbientOcclusion(current.entries, {
-        settings: { atlasSize, quality },
+        settings: { ...settingsRef.current },
         onProgress: (progress) => {
           setProgressLabel(
             `${progress.stage} ${Math.round(progress.fraction * 100)}% (bounce ${progress.bounce}/${progress.bounces})`
@@ -262,7 +293,7 @@ export function App() {
     } finally {
       bakingRef.current = false;
     }
-  }, [atlasSize, changeDisplayMode, pushMessage, quality, setStatus]);
+  }, [changeDisplayMode, pushMessage, setStatus]);
 
   const runExport = useCallback(async (): Promise<ExportOutcome | null> => {
     const current = activeRef.current;
@@ -274,7 +305,12 @@ export function App() {
     if (bakingRef.current) return null;
     busyRef.current = true;
     try {
-      const result = await exportDocument(current.root, current.sourceName, applied.textures.export);
+      const result = await exportDocument(
+        current.root,
+        current.sourceName,
+        applied.textures.export,
+        applied.textures.preview
+      );
       downloadResult(result);
       pushMessage(`Exported ${result.name} (${result.bytes.length} bytes)`);
       return { name: result.name, bytes: result.bytes };
@@ -308,7 +344,8 @@ export function App() {
       bakedMeshes: appliedRef.current?.bakedMeshCount ?? 0,
       hasUv1,
       messages: messagesRef.current,
-      materials: sceneMaterialSummary(active)
+      materials: sceneMaterialSummary(active),
+      bakeSettings: { ...settingsRef.current }
     };
  }, []);
 
@@ -319,7 +356,8 @@ export function App() {
       runBake,
       runExport,
       loadSample,
-      getHookState
+      getHookState,
+      getAtlasDataUrl: () => appliedRef.current?.textures.canvas.toDataURL("image/png") ?? null
     });
   }, [ingestFiles, runBake, runExport, loadSample, getHookState]);
 
@@ -394,37 +432,57 @@ export function App() {
                 )}
               </vscode-collapsible>
               <vscode-collapsible heading="Bake" open>
-                <div className="setting-group">
-                  <span className="setting-label">Atlas size</span>
-                  <div className="button-row">
-                    {ATLAS_SIZES.map((size) => (
-                      <vscode-button
-                        key={size}
-                        className={size === atlasSize ? "toggle active" : "toggle"}
-                        aria-pressed={size === atlasSize}
-                        onClick={() => setAtlasSize(size)}
-                      >
-                        {size}
-                      </vscode-button>
-                    ))}
-                  </div>
-                </div>
-                <div className="setting-group">
-                  <span className="setting-label">Quality</span>
-                  <div className="button-row">
-                    {QUALITY_PRESETS.map((preset) => (
-                      <vscode-button
-                        key={preset}
-                        className={preset === quality ? "toggle active" : "toggle"}
-                        aria-pressed={preset === quality}
-                        onClick={() => setQuality(preset)}
-                      >
-                        {preset}
-                      </vscode-button>
-                    ))}
-                  </div>
-                </div>
-                <div className="button-row">
+                <vscode-form-container>
+                  <vscode-form-group variant="settings-group">
+                    <vscode-label>Atlas size</vscode-label>
+                    <vscode-single-select
+                      data-form-control="atlas"
+                      value={String(atlasSize)}
+                      disabled={bakeStatus === "running"}
+                    >
+                      {ATLAS_SIZES.map((size) => (
+                        <vscode-option key={size} value={String(size)}>
+                          {`${size} x ${size}`}
+                        </vscode-option>
+                      ))}
+                    </vscode-single-select>
+                    <vscode-form-helper>
+                      Resolution of the shared atlas texture.
+                    </vscode-form-helper>
+                  </vscode-form-group>
+                  <vscode-form-group variant="settings-group">
+                    <vscode-label>Quality</vscode-label>
+                    <vscode-single-select
+                      data-form-control="quality"
+                      value={quality}
+                      disabled={bakeStatus === "running"}
+                    >
+                      {QUALITY_PRESETS.map((preset) => (
+                        <vscode-option key={preset} value={preset}>
+                          {preset}
+                        </vscode-option>
+                      ))}
+                    </vscode-single-select>
+                    <vscode-form-helper>
+                      Hemisphere samples, bounces and smoothing per preset.
+                    </vscode-form-helper>
+                  </vscode-form-group>
+                  <vscode-form-group variant="settings-group">
+                    <vscode-label>Display</vscode-label>
+                    <vscode-single-select
+                      data-form-control="display"
+                      value={displayMode}
+                      disabled={bakeStatus !== "done"}
+                    >
+                      <vscode-option value="albedo">albedo</vscode-option>
+                      <vscode-option value="ao">ambient occlusion</vscode-option>
+                    </vscode-single-select>
+                    <vscode-form-helper>
+                      View the baked occlusion without re-baking.
+                    </vscode-form-helper>
+                  </vscode-form-group>
+                </vscode-form-container>
+                <div className="actions-row">
                   <vscode-button
                     disabled={bakeStatus === "running" || activeName === null}
                     onClick={() => void runBake()}
@@ -432,33 +490,13 @@ export function App() {
                     Bake AO
                   </vscode-button>
                   <vscode-button
+                    secondary
                     disabled={bakeStatus !== "done" || activeName === null}
                     onClick={() => void runExport()}
                   >
                     Export
                   </vscode-button>
                 </div>
-                {bakeStatus === "done" ? (
-                  <div className="setting-group">
-                    <span className="setting-label">Display</span>
-                    <div className="button-row">
-                      <vscode-button
-                        className={displayMode === "albedo" ? "toggle active display-albedo" : "toggle display-albedo"}
-                        aria-pressed={displayMode === "albedo"}
-                        onClick={() => changeDisplayMode("albedo")}
-                      >
-                        Albedo
-                      </vscode-button>
-                      <vscode-button
-                        className={displayMode === "ao" ? "toggle active display-ao" : "toggle display-ao"}
-                        aria-pressed={displayMode === "ao"}
-                        onClick={() => changeDisplayMode("ao")}
-                      >
-                        AO
-                      </vscode-button>
-                    </div>
-                  </div>
-                ) : null}
                 {bakeMessage && bakeStatus === "failed" ? (
                   <p className="message error">{bakeMessage}</p>
                 ) : null}

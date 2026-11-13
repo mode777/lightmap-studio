@@ -5,7 +5,7 @@
  */
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { hasBakedAo } from "./lightmap.ts";
+import { bakedMaterialsOf } from "./lightmap.ts";
 
 export type DisplayMode = "albedo" | "ao";
 
@@ -69,12 +69,9 @@ export class Viewport {
     if (!this.documentRoot) return;
     this.documentRoot.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
-      const materials = Array.isArray(object.material) ? object.material : [object.material];
-      for (const material of materials) {
-        if (!hasBakedAo(material)) continue;
-        material.aoMap = this.displayMode === "ao" ? material.userData.aoTexture : null;
-        material.needsUpdate = true;
-      }
+      const set = bakedMaterialsOf(object);
+      if (!set) return;
+      object.material = this.displayMode === "ao" ? set.aoView : set.albedo;
     });
   }
 
@@ -126,10 +123,17 @@ function disposeObject(root: THREE.Object3D): void {
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     object.geometry.dispose();
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    for (const material of materials) {
-      if (hasBakedAo(material)) material.userData.aoTexture?.dispose();
-      material.dispose();
+    const set = bakedMaterialsOf(object);
+    if (set) {
+      const aoViewMaterials = Array.isArray(set.aoView) ? set.aoView : [set.aoView];
+      for (const material of aoViewMaterials) {
+        const map = (material as THREE.MeshBasicMaterial).map;
+        if (map) map.dispose();
+      }
+      const aoMaterials = Array.isArray(set.ao) ? set.ao : [set.ao];
+      for (const material of aoMaterials) material.dispose();
     }
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) material.dispose();
   });
 }

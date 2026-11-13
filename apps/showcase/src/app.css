@@ -1,17 +1,79 @@
-/* Application-specific layout beyond the workbench kit's region chrome. */
+/* Application-specific layout beyond the workbench kit's region chrome.
+   Every surface derives from the workbench tokens - no whites, no default
+   browser margins. */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--vscode-sideBar-background, #181818);
+  color: var(--vscode-foreground, #cccccc);
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+}
+
+#root {
+  height: 100vh;
+  background: var(--vscode-sideBar-background, #181818);
+}
 
 .explorer-body {
   display: flex;
   flex-direction: column;
+  gap: 10px;
   height: 100%;
   overflow: auto;
+  padding: 8px;
+  background: var(--vscode-sideBar-background, #181818);
+  color: var(--vscode-foreground, #cccccc);
+  font-size: var(--vscode-font-size, 13px);
+}
+
+.explorer-body vscode-form-group {
+  --vscode-font-size: 13px;
+}
+
+.actions-row {
+  display: flex;
+  gap: 8px;
+  padding-top: 4px;
 }
 
 .empty-hint {
-  padding: 12px;
+  padding: 4px;
   margin: 0;
-  opacity: 0.7;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
   font-size: 12px;
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.messages vscode-button {
+  width: fit-content;
+}
+
+.actions-row vscode-button {
+  width: auto;
+}
+
+.message {
+  margin: 0;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+  word-break: break-word;
+}
+
+.message.error {
+  color: var(--vscode-errorForeground, #f66);
+}
+
+.status-error {
+  color: var(--vscode-errorForeground, #f66);
 }
 
 .viewport-host {
@@ -19,15 +81,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-}
-
-.empty-viewport {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  opacity: 0.6;
-  font-size: 13px;
+  background: var(--vscode-editor-background, #1e1e1e);
 }
 
 .viewport-canvas {
@@ -36,4 +90,18 @@
   width: 100%;
   height: 100%;
   display: block;
+}
+
+.empty-viewport {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  pointer-events: none;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+  font-size: 13px;
 }

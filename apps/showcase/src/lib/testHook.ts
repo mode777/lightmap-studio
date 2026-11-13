@@ -15,6 +15,7 @@ export interface ShowcaseHookState {
   hasUv1: boolean;
   messages: string[];
   materials: Array<{ mesh: string; name: string; type: string; map: boolean; aoMap: boolean }>;
+  bakeSettings: { atlasSize: number; quality: string };
 }
 
 export interface ExportOutcome {
@@ -32,6 +33,7 @@ export interface ShowcaseHook {
   bake(): Promise<BakeOutcome | { error: string }>;
   exportActiveDocument(): Promise<ExportOutcome | { error: string }>;
   generateSampleDocument(): Promise<File>;
+  atlasDataUrl(): string | null;
   state(): ShowcaseHookState;
 }
 
@@ -41,6 +43,7 @@ export interface HookInputs {
   runExport(): Promise<ExportOutcome | null>;
   loadSample(): Promise<void>;
   getHookState(): ShowcaseHookState;
+  getAtlasDataUrl(): string | null;
 }
 
 export function installTestHook(inputs: HookInputs): void {
@@ -65,6 +68,8 @@ export function installTestHook(inputs: HookInputs): void {
     },
 
     generateSampleDocument: buildSampleGlbFile,
+
+    atlasDataUrl: inputs.getAtlasDataUrl,
 
     state: inputs.getHookState
   };

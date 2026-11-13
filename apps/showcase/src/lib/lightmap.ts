@@ -1,14 +1,21 @@
 /**
  * Bake result application: float lightmap -> 8-bit canvas texture, atlas UVs
- * -> uv1 attribute, aoMap -> baked materials. Orientation contract:
+ * -> uv1 attribute, per-mesh material variants for display and export.
+ * Orientation contract:
  *
  * - The library's lightmap UVs put v=0 at array row 0 (its display recipe
  *   uses a DataTexture, whose default flipY is false).
- * - Preview therefore uses a canvas texture with flipY = false.
+ * - The preview texture therefore keeps flipY = false.
  * - GLTFExporter flips image rows at encode time when texture.flipY is true
  *   (verified in GLTFExporter.processImage), which is exactly what glTF
- *   viewers need for these UVs. The flipY=true export texture is only
- *   attached while an export is running (see exporter.ts).
+ *   viewers need for these UVs. The flipY=true export texture is attached
+ *   only while an export is running (see exporter.ts).
+ *
+ * Display modes live on the mesh's userData (bakedMaterials):
+ * - albedo: the original material
+ * - ao: an unlit MeshBasicMaterial showing the raw baked occlusion directly.
+ *   PBR aoMap only attenuates ambient light, which is invisible under strong
+ *   direct lighting - the showcase shows the occlusion itself instead.
  */
 import * as THREE from "three";
 import type { StudioResult } from "lightmap-studio";
@@ -61,17 +68,25 @@ export interface BakedTextures {
   canvas: HTMLCanvasElement;
 }
 
+export interface BakedMaterialSet {
+  /** The original material as loaded (possibly an array). */
+  albedo: THREE.Material | THREE.Material[];
+  /** PBR clone(s) carrying aoMap; the export source (possibly an array). */
+  ao: THREE.Material | THREE.Material[];
+  /** Unlit raw-AO display material(s). */
+  aoView: THREE.Material | THREE.Material[];
+}
+
 export interface AppliedBake {
   textures: BakedTextures;
   bakedMeshCount: number;
 }
 
 /**
- * Write the bake result back onto the scene: atlas UVs to `uv1`, per-mesh
- * material clones carrying the baked AO texture in userData (the viewport
- * assigns aoMap according to the display mode). Geometries shared by several
- * baked meshes are cloned per mesh so each gets its own atlas UVs; materials
- * are cloned per mesh so AO never leaks across objects.
+ * Write the bake result back onto the scene: atlas UVs to `uv1` and a
+ * per-mesh material set on userData. Geometries shared by several baked
+ * meshes are cloned per mesh so each gets its own atlas UVs; materials are
+ * cloned per mesh so nothing leaks across objects.
  */
 export function applyBakeResult(entries: ExtractedEntry[], result: StudioResult): AppliedBake {
   const canvas = lightmapToCanvas(result.lightmap, result.width, result.height);
@@ -104,30 +119,26 @@ export function applyBakeResult(entries: ExtractedEntry[], result: StudioResult)
       new THREE.BufferAttribute(new Float32Array(litObject.uvs), 2)
     );
 
-    const materialOrList = entry.mesh.material;
-    if (Array.isArray(materialOrList)) {
-      entry.mesh.material = materialOrList.map((material) => withAoTexture(material, preview));
-    } else {
-      entry.mesh.material = withAoTexture(materialOrList, preview);
-    }
+    const albedo = entry.mesh.material;
+    const toStandard = (material: THREE.Material): THREE.MeshStandardMaterial => {
+      const clone = material.clone() as THREE.MeshStandardMaterial;
+      clone.aoMap = preview;
+      clone.aoMapIntensity = 1;
+      clone.needsUpdate = true;
+      return clone;
+    };
+    const ao = Array.isArray(albedo) ? albedo.map(toStandard) : toStandard(albedo);
+    const toAoView = (): THREE.MeshBasicMaterial => new THREE.MeshBasicMaterial({ map: preview });
+    const aoView = Array.isArray(albedo) ? albedo.map(toAoView) : toAoView();
+    const set: BakedMaterialSet = { albedo, ao, aoView };
+    entry.mesh.userData.bakedMaterials = set;
+    entry.mesh.material = aoView;
   });
 
   return { textures: { preview, export: exportTexture, canvas }, bakedMeshCount: entries.length };
 }
 
-function withAoTexture(
-  material: THREE.Material,
-  texture: THREE.CanvasTexture
-): THREE.MeshStandardMaterial {
-  const clone = material.clone() as THREE.MeshStandardMaterial;
-  clone.userData.aoTexture = texture;
-  clone.aoMap = texture;
-  clone.aoMapIntensity = 1;
-  clone.needsUpdate = true;
-  return clone;
-}
-
-/** True for materials this app prepared with a baked AO texture. */
-export function hasBakedAo(material: THREE.Material): material is THREE.MeshStandardMaterial {
-  return material instanceof THREE.MeshStandardMaterial && material.userData.aoTexture != null;
+/** The baked material set attached to a mesh, if any. */
+export function bakedMaterialsOf(mesh: THREE.Mesh): BakedMaterialSet | null {
+  return (mesh.userData.bakedMaterials as BakedMaterialSet | undefined) ?? null;
 }

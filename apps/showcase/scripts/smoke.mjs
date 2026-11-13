@@ -12,7 +12,7 @@
 //   npm run test:smoke
 //   CHROME_SHELL_PATH=/path/to/chrome-headless-shell npm run test:smoke
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +22,7 @@ import { build } from "vite";
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST_ROOT = path.join(APP_ROOT, "dist");
+const SCREENSHOT_DIR = process.env.SHOWCASE_SCREENSHOT_DIR || null;
 
 const CHROME_CANDIDATES = [
   process.env.CHROME_SHELL_PATH,
@@ -151,11 +152,13 @@ async function main() {
   const server = await serveDirectory(DIST_ROOT);
   let browser = null;
   try {
+    if (SCREENSHOT_DIR) mkdirSync(SCREENSHOT_DIR, { recursive: true });
     const { port } = server.address();
     const url = `http://127.0.0.1:${port}/lightmap-studio/`;
     browser = await puppeteer.launch({
       executablePath: chrome,
       headless: "shell",
+      protocolTimeout: 600_000,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -175,7 +178,18 @@ async function main() {
     });
 
     await page.goto(url, { waitUntil: "load", timeout: 30_000 });
+    await page.setViewport({ width: 1440, height: 900 });
     await page.waitForFunction("window.__showcase !== undefined", { timeout: 30_000, polling: 200 });
+    const shot = async (name) => {
+      if (SCREENSHOT_DIR) {
+        await page.screenshot({ path: path.join(SCREENSHOT_DIR, name) });
+        console.log(`[showcase:smoke] screenshot ${name}`);
+      }
+    };
+
+    // Empty state: full workbench shell with the settings form.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot("01-empty-state.png");
 
     // 1. Load the generated sample document through the ingestion path.
     const loaded = await page.evaluate(async () => {
@@ -183,12 +197,32 @@ async function main() {
       await window.__showcase.loadFiles([file]);
       return window.__showcase.state();
     });
-    if (!loaded.active || !loaded.active.includes("sample-scene.glb")) {
+    if (!loaded.active || !loaded.active.includes("sample-room.glb")) {
       throw new Error(`sample document is not active after load: ${loaded.active}`);
     }
     console.log(`[showcase:smoke] PASS loaded and activated ${loaded.active}`);
 
+    // Drive the quality dropdown through real UI interaction. The select
+    // renders its options inside the shadow root, so navigate by keyboard:
+    // options are [draft, preview, final], current is "preview".
+    await page.click('vscode-single-select[data-form-control="quality"]');
+    await page.keyboard.press("ArrowUp"); // preview -> draft
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      "window.__showcase.state().bakeSettings.quality === 'draft'",
+      { timeout: 5_000, polling: 100 }
+    ).catch(async () => {
+      const probe = await page.evaluate(() => ({
+        value: document.querySelector('vscode-single-select[data-form-control="quality"]')?.value,
+        open: document.querySelector('vscode-single-select[data-form-control="quality"]')?.open,
+        state: window.__showcase.state().bakeSettings
+      }));
+      throw new Error(`dropdown change did not reach bake settings: ${JSON.stringify(probe)}`);
+    });
+    console.log("[showcase:smoke] PASS quality dropdown wired to bake settings");
+
     // 2. Unsupported file types are skipped, never loaded silently.
+    console.log("[showcase:smoke] step: skipped-file evaluate");
     const skipped = await page.evaluate(async () => {
       const result = await window.__showcase.loadFiles([
         new File(["not a model"], "notes.txt", { type: "text/plain" })
@@ -201,6 +235,7 @@ async function main() {
     console.log("[showcase:smoke] PASS unsupported file reported as skipped");
 
     // 3. Missing document part fails with the file named; previous doc stays active.
+    console.log("[showcase:smoke] step: missing-part evaluate");
     await page.evaluate(async () => {
       const gltf = JSON.stringify({
         asset: { version: "2.0" },
@@ -231,7 +266,7 @@ async function main() {
         `load failure did not name the missing buffer: ${JSON.stringify(afterMissing.messages)}`
       );
     }
-    if (!afterMissing.active.includes("sample-scene.glb")) {
+    if (!afterMissing.active.includes("sample-room.glb")) {
       throw new Error(`failed load changed the active document: ${afterMissing.active}`);
     }
     console.log("[showcase:smoke] PASS missing document part rejected with the file named");
@@ -257,8 +292,8 @@ async function main() {
     // 5. Bake the sample scene.
     const baked = await page.evaluate(() => window.__showcase.bake());
     if (baked.error) throw new Error(`bake failed: ${baked.error}`);
-    if (baked.bakedMeshes !== 2) {
-      throw new Error(`expected 2 baked meshes (floor + occluder), got ${baked.bakedMeshes}`);
+    if (baked.bakedMeshes !== 7) {
+      throw new Error(`expected 7 baked meshes (floor, 3 walls, 3 boxes), got ${baked.bakedMeshes}`);
     }
     if (!(baked.ao.min < baked.ao.max)) {
       throw new Error(`AO texture has no variation (min ${baked.ao.min}, max ${baked.ao.max})`);
@@ -275,17 +310,38 @@ async function main() {
     if (stateAfterBake.displayMode !== "ao") throw new Error("AO display mode not active after bake");
     console.log(`[showcase:smoke] scene materials: ${JSON.stringify(stateAfterBake.materials)}`);
 
-    // 5c. Display toggle without re-baking.
-    await page.click("vscode-button.display-albedo");
+    // 5c. Display toggle without re-baking, via the display dropdown.
+    await shot("02-ao-after-bake.png");
+    // options are [albedo, ao], current is "ao" after the bake
+    await page.click('vscode-single-select[data-form-control="display"]');
+    await page.keyboard.press("ArrowUp"); // ao -> albedo
+    await page.keyboard.press("Enter");
     await page.waitForFunction(
       "window.__showcase.state().displayMode === 'albedo'",
       { timeout: 5_000, polling: 100 }
     );
-    await page.click("vscode-button.display-ao");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot("03-albedo-after-bake.png");
+    await page.click('vscode-single-select[data-form-control="display"]');
+    await page.keyboard.press("ArrowDown"); // albedo -> ao
+    await page.keyboard.press("Enter");
     await page.waitForFunction(
       "window.__showcase.state().displayMode === 'ao'",
       { timeout: 5_000, polling: 100 }
     );
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot("04-ao-again.png");
+    // Dump the raw atlas so chart-level artifacts can be diagnosed offline.
+    if (SCREENSHOT_DIR) {
+      const atlasDataUrl = await page.evaluate(() => window.__showcase.atlasDataUrl());
+      if (atlasDataUrl) {
+        writeFileSync(
+          path.join(SCREENSHOT_DIR, "05-atlas.png"),
+          Buffer.from(atlasDataUrl.replace(/^data:image\/png;base64,/, ""), "base64")
+        );
+        console.log("[showcase:smoke] screenshot 05-atlas.png");
+      }
+    }
     console.log("[showcase:smoke] PASS albedo/AO display toggle");
 
     // 6. Export and assert the glTF structure.
@@ -300,7 +356,7 @@ async function main() {
       return { name: result.name, base64: btoa(binary) };
     });
     if (exported.error) throw new Error(`export failed: ${exported.error}`);
-    if (exported.name !== "sample-scene.ao.glb") {
+    if (exported.name !== "sample-room.ao.glb") {
       throw new Error(`unexpected export name ${exported.name}`);
     }
     const bytes = new Uint8Array(Buffer.from(exported.base64, "base64"));
@@ -359,16 +415,16 @@ async function main() {
     // 5b. Two valid documents: the tree activation switches the active scene.
     await page.evaluate(async () => {
       const file = await window.__showcase.generateSampleDocument();
-      const renamed = new File([await file.arrayBuffer()], "sample-two.glb", {
+      const renamed = new File([await file.arrayBuffer()], "sample-room-two.glb", {
         type: "model/gltf-binary"
       });
       await window.__showcase.loadFiles([renamed]);
     });
     const withTwo = await page.evaluate(() => window.__showcase.state());
-    if (!withTwo.active.includes("sample-two.glb")) {
+    if (!withTwo.active.includes("sample-room-two.glb")) {
       throw new Error(`second document did not become active: ${withTwo.active}`);
     }
-    await page.waitForSelector('vscode-tree-item[data-document-path="sample-scene.glb"]', {
+    await page.waitForSelector('vscode-tree-item[data-document-path="sample-room.glb"]', {
       visible: true,
       timeout: 15_000
     }).catch(async () => {
@@ -381,7 +437,7 @@ async function main() {
       }));
       throw new Error(`tree item not found; DOM probe: ${JSON.stringify(probe, null, 2)}`);
     });
-    await page.click('vscode-tree-item[data-document-path="sample-scene.glb"]');
+    await page.click('vscode-tree-item[data-document-path="sample-room.glb"]');
     // Instrument the event flow while waiting for the activation.
     await page.evaluate(() => {
       window.__treeEvents = [];
@@ -400,9 +456,9 @@ async function main() {
         true
       );
     });
-    await page.click('vscode-tree-item[data-document-path="sample-scene.glb"]');
+    await page.click('vscode-tree-item[data-document-path="sample-room.glb"]');
     await page.waitForFunction(
-      "window.__showcase.state().active.includes('sample-scene.glb')",
+      "window.__showcase.state().active.includes('sample-room.glb')",
       { timeout: 15_000, polling: 200 }
     ).catch(async () => {
       const diagnosis = await page.evaluate(() => ({
