@@ -1,12 +1,10 @@
 /**
  * glTF export: serialize the document with the baked AO attached. Regardless
  * of the current display mode, the PBR baked material set is attached for the
- * duration of the parse, with the flipY export texture in place of the
- * preview texture; GLTFExporter then flips image rows at encode so the
- * written image matches glTF's sampling of these UVs. TEXCOORD_0 and base
- * color are untouched. The bake is scene-global (the lightmapper's
- * hemisphere pass occludes against the whole scene), stored in one shared
- * atlas referenced by every baked material's occlusionTexture.
+ * duration of the parse so every baked material carries its occlusionTexture
+ * (sampled on TEXCOORD_1, one shared scene-global atlas). The texture is
+ * stored unflipped - see lightmap.ts for the orientation contract.
+ * TEXCOORD_0 and base color are untouched.
  */
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
@@ -25,11 +23,9 @@ export interface ExportResult {
 
 export async function exportDocument(
   root: THREE.Object3D,
-  sourceName: string,
-  exportTexture: THREE.Texture,
-  previewTexture: THREE.Texture
+  sourceName: string
 ): Promise<ExportResult> {
-  const restores = attachBakedMaterials(root, exportTexture, previewTexture);
+  const restores = attachBakedMaterials(root);
   const binary = !/\.gltf$/i.test(sourceName);
   try {
     const exporter = new GLTFExporter();
@@ -43,34 +39,25 @@ export async function exportDocument(
   }
 }
 
-function attachBakedMaterials(
-  root: THREE.Object3D,
-  exportTexture: THREE.Texture,
-  previewTexture: THREE.Texture
-): Array<() => void> {
+function attachBakedMaterials(root: THREE.Object3D): Array<() => void> {
   const restores: Array<() => void> = [];
   root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
-    const set = bakedMaterialsOf(object);
-    if (!set) return;
+    const set = object instanceof THREE.Mesh ? bakedMaterialsOf(object) : null;
+    // The baked material set is app-internal bookkeeping; GLTFExporter would
+    // serialize it into glTF extras (JSON.stringify of userData), producing
+    // junk that breaks disposal on reimport. Strip it for the parse.
+    const baked = object.userData.bakedMaterials;
+    if (baked !== undefined) {
+      delete object.userData.bakedMaterials;
+      restores.push(() => {
+        object.userData.bakedMaterials = baked;
+      });
+    }
+    if (!(object instanceof THREE.Mesh) || !set) return;
     const previousMaterial = object.material;
     object.material = set.ao;
-    // Every standard material in the baked set points at the flipY=true
-    // texture for the encode run.
-    const aoMaterials: THREE.MeshStandardMaterial[] = (
-      Array.isArray(set.ao) ? set.ao : [set.ao]
-    ) as THREE.MeshStandardMaterial[];
-    const previousAoMaps = aoMaterials.map((material) => material.aoMap);
-    for (const material of aoMaterials) {
-      material.aoMap = exportTexture;
-      material.needsUpdate = true;
-    }
     restores.push(() => {
       object.material = previousMaterial;
-      aoMaterials.forEach((material, index) => {
-        material.aoMap = previousAoMaps[index] ?? previewTexture;
-        material.needsUpdate = true;
-      });
     });
   });
   return restores;

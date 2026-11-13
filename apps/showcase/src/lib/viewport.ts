@@ -128,12 +128,16 @@ function disposeObject(root: THREE.Object3D): void {
       const aoViewMaterials = Array.isArray(set.aoView) ? set.aoView : [set.aoView];
       for (const material of aoViewMaterials) {
         const map = (material as THREE.MeshBasicMaterial).map;
-        if (map) map.dispose();
+        if (map && typeof map.dispose === "function") map.dispose();
       }
       const aoMaterials = Array.isArray(set.ao) ? set.ao : [set.ao];
-      for (const material of aoMaterials) material.dispose();
+      for (const material of aoMaterials) {
+        if (typeof material.dispose === "function") material.dispose();
+      }
     }
     const materials = Array.isArray(object.material) ? object.material : [object.material];
-    for (const material of materials) material.dispose();
+    for (const material of materials) {
+      if (typeof material.dispose === "function") material.dispose();
+    }
   });
 }

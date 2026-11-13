@@ -3,13 +3,18 @@
  * -> uv1 attribute, per-mesh material variants for display and export.
  * Orientation contract:
  *
- * - The library's lightmap UVs put v=0 at array row 0 (its display recipe
- *   uses a DataTexture, whose default flipY is false).
- * - The preview texture therefore keeps flipY = false.
- * - GLTFExporter flips image rows at encode time when texture.flipY is true
- *   (verified in GLTFExporter.processImage), which is exactly what glTF
- *   viewers need for these UVs. The flipY=true export texture is attached
- *   only while an export is running (see exporter.ts).
+ * - The studio's lightmap UVs put v=0 at array row 0 (its display recipe uses
+ *   a DataTexture, whose default flipY is false).
+ * - glTF 2.0 defines uv origin at the top-left of the stored image (spec:
+ *   "the texture coordinate value of (0.0, 0.0) points to the beginning of
+ *   the first (upper-left) image pixel"), and GLTFLoader loads textures with
+ *   flipY = false - so glTF space and our UV space agree, provided the
+ *   exported image is stored unflipped.
+ * - One flipY=false canvas texture therefore serves both the viewport and
+ *   the export; GLTFExporter would only flip rows if texture.flipY were true,
+ *   which vertically mirrors the baked AO in viewers (verified in
+ *   GLTFExporter.processImage) - that bug shipped once and is pinned by the
+ *   smoke's orientation round trip (export -> reimport -> pixel compare).
  *
  * Display modes live on the mesh's userData (bakedMaterials):
  * - albedo: the original material
@@ -61,10 +66,16 @@ function configureTexture(texture: THREE.CanvasTexture): THREE.CanvasTexture {
 }
 
 export interface BakedTextures {
-  /** flipY=false; samples array row 0 at v=0, matching the studio UVs. */
-  preview: THREE.CanvasTexture;
-  /** flipY=true; GLTFExporter flips rows at encode for glTF viewers. */
-  export: THREE.CanvasTexture;
+  /**
+   * flipY=false everywhere. Orientation contract: the studio's lightmap UVs
+   * put v=0 at array row 0 (its own display recipe uses a DataTexture with
+   * flipY=false), and the glTF 2.0 convention is v=0 at the top row of the
+   * stored image with GLTFLoader loading textures at flipY=false. So the
+   * SAME unflipped texture is correct for viewport preview and for export -
+   * GLTFExporter only flips rows when texture.flipY is true, which must NOT
+   * happen here (verified in GLTFExporter.processImage).
+   */
+  texture: THREE.CanvasTexture;
   canvas: HTMLCanvasElement;
 }
 
@@ -90,10 +101,8 @@ export interface AppliedBake {
  */
 export function applyBakeResult(entries: ExtractedEntry[], result: StudioResult): AppliedBake {
   const canvas = lightmapToCanvas(result.lightmap, result.width, result.height);
-  const preview = configureTexture(new THREE.CanvasTexture(canvas));
-  preview.flipY = false;
-  const exportTexture = configureTexture(new THREE.CanvasTexture(canvas));
-  exportTexture.flipY = true;
+  const texture = configureTexture(new THREE.CanvasTexture(canvas));
+  texture.flipY = false;
 
   const litObjects = result.scene.litObjects;
   if (litObjects.length !== entries.length) {
@@ -122,20 +131,20 @@ export function applyBakeResult(entries: ExtractedEntry[], result: StudioResult)
     const albedo = entry.mesh.material;
     const toStandard = (material: THREE.Material): THREE.MeshStandardMaterial => {
       const clone = material.clone() as THREE.MeshStandardMaterial;
-      clone.aoMap = preview;
+      clone.aoMap = texture;
       clone.aoMapIntensity = 1;
       clone.needsUpdate = true;
       return clone;
     };
     const ao = Array.isArray(albedo) ? albedo.map(toStandard) : toStandard(albedo);
-    const toAoView = (): THREE.MeshBasicMaterial => new THREE.MeshBasicMaterial({ map: preview });
+    const toAoView = (): THREE.MeshBasicMaterial => new THREE.MeshBasicMaterial({ map: texture });
     const aoView = Array.isArray(albedo) ? albedo.map(toAoView) : toAoView();
     const set: BakedMaterialSet = { albedo, ao, aoView };
     entry.mesh.userData.bakedMaterials = set;
     entry.mesh.material = aoView;
   });
 
-  return { textures: { preview, export: exportTexture, canvas }, bakedMeshCount: entries.length };
+  return { textures: { texture, canvas }, bakedMeshCount: entries.length };
 }
 
 /** The baked material set attached to a mesh, if any. */

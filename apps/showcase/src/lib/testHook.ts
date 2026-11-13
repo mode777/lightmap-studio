@@ -15,7 +15,7 @@ export interface ShowcaseHookState {
   hasUv1: boolean;
   messages: string[];
   materials: Array<{ mesh: string; name: string; type: string; map: boolean; aoMap: boolean }>;
-  bakeSettings: { atlasSize: number; quality: string };
+  bakeSettings: { atlasSize: number; quality: string; bounces: number };
 }
 
 export interface ExportOutcome {
@@ -34,6 +34,18 @@ export interface ShowcaseHook {
   exportActiveDocument(): Promise<ExportOutcome | { error: string }>;
   generateSampleDocument(): Promise<File>;
   atlasDataUrl(): string | null;
+  floorUvAtlasSamples(): { points: Array<{ u: number; v: number }>; values: number[] } | null;
+  sampleFloorAoMap(
+    points: Array<{ u: number; v: number }>
+  ): number[] | { error: string; detail?: unknown };
+  debugLoadGlb(
+    base64: string
+  ): Promise<{
+    materials?: Array<{ name: string; parent: string; type: string; aoMap: boolean; aoMapChannel?: number }>;
+    occlusionInJson?: unknown;
+    extensionsUsed?: string[];
+    error?: string;
+  }>;
   state(): ShowcaseHookState;
 }
 
@@ -44,6 +56,10 @@ export interface HookInputs {
   loadSample(): Promise<void>;
   getHookState(): ShowcaseHookState;
   getAtlasDataUrl(): string | null;
+  getFloorUvAtlasSamples(): { points: Array<{ u: number; v: number }>; values: number[] } | null;
+  sampleFloorAoMap(
+    points: Array<{ u: number; v: number }>
+  ): number[] | { error: string; detail?: unknown };
 }
 
 export function installTestHook(inputs: HookInputs): void {
@@ -70,6 +86,55 @@ export function installTestHook(inputs: HookInputs): void {
     generateSampleDocument: buildSampleGlbFile,
 
     atlasDataUrl: inputs.getAtlasDataUrl,
+    floorUvAtlasSamples: inputs.getFloorUvAtlasSamples,
+    sampleFloorAoMap: inputs.sampleFloorAoMap,
+
+    async debugLoadGlb(base64) {
+      const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+      const buffer = bytes.buffer;
+      return new Promise((resolve) => {
+        const loader = new GLTFLoader();
+        loader.parse(
+          buffer,
+          "",
+          (gltf) => {
+            const json = (gltf.parser as unknown as { json: {
+              materials: Array<Record<string, unknown>>;
+              extensionsUsed?: string[];
+            } }).json;
+            const materials: Array<{
+              name: string;
+              parent: string;
+              type: string;
+              aoMap: boolean;
+              aoMapChannel?: number;
+            }> = [];
+            gltf.scene.traverse((object) => {
+              const mesh = object as { isMesh?: boolean; material?: unknown; parent?: { name?: string } };
+              if (!mesh.isMesh) return;
+              const material = mesh.material as {
+                type?: string;
+                aoMap?: { channel?: number } | null;
+              };
+              materials.push({
+                name: (object as { name?: string }).name ?? "",
+                parent: mesh.parent?.name ?? "",
+                type: material.type ?? "?",
+                aoMap: material.aoMap != null,
+                aoMapChannel: material.aoMap?.channel
+              });
+            });
+            resolve({
+              materials,
+              occlusionInJson: json.materials.map((material) => material.occlusionTexture ?? null),
+              extensionsUsed: json.extensionsUsed
+            });
+          },
+          (error) => resolve({ error: String(error) })
+        );
+      });
+    },
 
     state: inputs.getHookState
   };

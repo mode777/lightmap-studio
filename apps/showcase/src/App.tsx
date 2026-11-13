@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { ResizablePane, Sidebar, StatusBar, WorkbenchShell } from "vscode-workbench/react";
 import {
   ATLAS_SIZES,
+  BOUNCE_OPTIONS,
   bakeAmbientOcclusion,
   checkBakeCapabilities,
   errorMessage,
@@ -41,6 +42,7 @@ export function App() {
   const [displayMode, setDisplayMode] = useState<DisplayMode>("albedo");
   const [atlasSize, setAtlasSize] = useState(1024);
   const [quality, setQuality] = useState<(typeof QUALITY_PRESETS)[number]>("preview");
+  const [bounces, setBounces] = useState(1);
 
   // Synchronous mirrors: the test hook and the bake/export flows read these
   // directly, so they never depend on a React render having happened.
@@ -52,9 +54,10 @@ export function App() {
   const messagesRef = useRef<string[]>([]);
   const bakingRef = useRef(false);
   const busyRef = useRef(false);
-  const settingsRef = useRef<{ atlasSize: number; quality: QualityPreset }>({
+  const settingsRef = useRef<{ atlasSize: number; quality: QualityPreset; bounces: number }>({
     atlasSize: 1024,
-    quality: "preview"
+    quality: "preview",
+    bounces: 1
   });
 
   const viewportHostRef = useRef<HTMLElement | null>(null);
@@ -92,6 +95,11 @@ export function App() {
     setQuality(preset);
   }, []);
 
+  const applyBounces = useCallback((count: number) => {
+    settingsRef.current.bounces = count;
+    setBounces(count);
+  }, []);
+
   // Settings + display dropdowns: vscode-single-select dispatches a plain
   // (non-bubbling) change event, so listen in the capture phase and route by
   // the data-form-control marker.
@@ -103,11 +111,12 @@ export function App() {
       const value = target?.value ?? "";
       if (kind === "atlas") applyAtlasSize(Number(value));
       else if (kind === "quality") applyQuality(value as QualityPreset);
+      else if (kind === "bounces") applyBounces(Number(value));
       else if (kind === "display") changeDisplayMode(value as DisplayMode);
     };
     document.addEventListener("change", onChange, true);
     return () => document.removeEventListener("change", onChange, true);
-  }, [applyAtlasSize, applyQuality, changeDisplayMode]);
+  }, [applyAtlasSize, applyBounces, applyQuality, changeDisplayMode]);
 
   // Viewport lifecycle.
   useEffect(() => {
@@ -305,12 +314,7 @@ export function App() {
     if (bakingRef.current) return null;
     busyRef.current = true;
     try {
-      const result = await exportDocument(
-        current.root,
-        current.sourceName,
-        applied.textures.export,
-        applied.textures.preview
-      );
+      const result = await exportDocument(current.root, current.sourceName);
       downloadResult(result);
       pushMessage(`Exported ${result.name} (${result.bytes.length} bytes)`);
       return { name: result.name, bytes: result.bytes };
@@ -357,9 +361,99 @@ export function App() {
       runExport,
       loadSample,
       getHookState,
-      getAtlasDataUrl: () => appliedRef.current?.textures.canvas.toDataURL("image/png") ?? null
+      getAtlasDataUrl: () => appliedRef.current?.textures.canvas.toDataURL("image/png") ?? null,
+      getFloorUvAtlasSamples,
+      sampleFloorAoMap
     });
   }, [ingestFiles, runBake, runExport, loadSample, getHookState]);
+
+  /**
+   * Sample the baked atlas at a handful of the floor's atlas UVs. Pixel y
+   * equals v * height (v=0 is array row 0 - no flip).
+   */
+  function getFloorUvAtlasSamples():
+    | { points: Array<{ u: number; v: number }>; values: number[] }
+    | null {
+    const applied = appliedRef.current;
+    const current = activeRef.current;
+    if (!applied || !current) return null;
+    const entry = current.entries.find(
+      (candidate) => candidate.name === "floor" || candidate.name.endsWith("/floor")
+    );
+    if (!entry) return null;
+    const uv = entry.mesh.geometry.getAttribute("uv1");
+    if (!uv) return null;
+    const canvas = applied.textures.canvas;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    const points: Array<{ u: number; v: number }> = [];
+    const values: number[] = [];
+    const stride = Math.max(1, Math.floor(uv.count / 8));
+    for (let index = 0; index < uv.count; index += stride) {
+      const u = uv.getX(index);
+      const v = uv.getY(index);
+      const x = Math.min(canvas.width - 1, Math.max(0, Math.round(u * canvas.width)));
+      const y = Math.min(canvas.height - 1, Math.max(0, Math.round(v * canvas.height)));
+      const pixel = context.getImageData(x, y, 1, 1).data;
+      points.push({ u, v });
+      values.push(pixel[0] ?? 0);
+    }
+    return { points, values };
+  }
+
+  /**
+   * Sample the ACTIVE document's floor AO map (the reimported export) at the
+   * given UVs. The stored image's top row is v=0, so pixel y = v * height.
+   */
+  function sampleFloorAoMap(
+    points: Array<{ u: number; v: number }>
+  ): number[] | { error: string; detail?: unknown } {
+    const current = activeRef.current;
+    if (!current) return { error: "no active document" };
+    let floor: THREE.Mesh | undefined;
+    const hasFloorName = (object: THREE.Object3D): boolean => {
+      let current: THREE.Object3D | null = object;
+      while (current) {
+        if (current.name === "floor") return true;
+        current = current.parent;
+      }
+      return false;
+    };
+    current.root.traverse((object) => {
+      if (!floor && object instanceof THREE.Mesh && hasFloorName(object)) floor = object;
+    });
+    const floorMesh = floor as THREE.Mesh | undefined;
+    if (!floorMesh) return { error: "no floor mesh" };
+    const materials = Array.isArray(floorMesh.material) ? floorMesh.material : [floorMesh.material];
+    const aoMap = materials.find(
+      (material): material is THREE.MeshStandardMaterial =>
+        material instanceof THREE.MeshStandardMaterial && material.aoMap != null
+    )?.aoMap;
+    if (!aoMap) {
+      return { error: "floor material has no aoMap", detail: materials.map((material) => ({
+          type: material.type,
+          aoMapKey: "aoMap" in material,
+          aoMap: (material as THREE.MeshStandardMaterial).aoMap ?? null
+        })) };
+    }
+    const image = aoMap.image as CanvasImageSource | undefined;
+    const width = "width" in aoMap ? Number((aoMap.image as { width?: number }).width ?? 0) : 0;
+    const height = "height" in aoMap ? Number((aoMap.image as { height?: number }).height ?? 0) : 0;
+    if (!image || !width || !height) {
+      return { error: "aoMap has no usable image", detail: { width, height } };
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return { error: "2d canvas unavailable" };
+    context.drawImage(image, 0, 0);
+    return points.map(({ u, v }) => {
+      const x = Math.min(width - 1, Math.max(0, Math.round(u * width)));
+      const y = Math.min(height - 1, Math.max(0, Math.round(v * height)));
+      return context.getImageData(x, y, 1, 1).data[0] ?? 0;
+    });
+  }
 
   const statusBarLeft = activeName
     ? `${activeName}${activeRef.current ? ` - ${activeRef.current.entries.length} meshes, ${activeRef.current.triangleCount} tris` : ""}`
@@ -464,7 +558,24 @@ export function App() {
                       ))}
                     </vscode-single-select>
                     <vscode-form-helper>
-                      Hemisphere samples, bounces and smoothing per preset.
+                      Hemisphere samples and smoothing per preset.
+                    </vscode-form-helper>
+                  </vscode-form-group>
+                  <vscode-form-group variant="settings-group">
+                    <vscode-label>Bounces</vscode-label>
+                    <vscode-single-select
+                      data-form-control="bounces"
+                      value={String(bounces)}
+                      disabled={bakeStatus === "running"}
+                    >
+                      {BOUNCE_OPTIONS.map((count) => (
+                        <vscode-option key={count} value={String(count)}>
+                          {String(count)}
+                        </vscode-option>
+                      ))}
+                    </vscode-single-select>
+                    <vscode-form-helper>
+                      Indirect light bounces. AO needs only 1 (direct sky).
                     </vscode-form-helper>
                   </vscode-form-group>
                   <vscode-form-group variant="settings-group">

@@ -202,24 +202,24 @@ async function main() {
     }
     console.log(`[showcase:smoke] PASS loaded and activated ${loaded.active}`);
 
-    // Drive the quality dropdown through real UI interaction. The select
-    // renders its options inside the shadow root, so navigate by keyboard:
-    // options are [draft, preview, final], current is "preview".
-    await page.click('vscode-single-select[data-form-control="quality"]');
-    await page.keyboard.press("ArrowUp"); // preview -> draft
+    // Drive the bounces dropdown through real UI interaction (same select
+    // wiring as all settings dropdowns). Quality stays at the default
+    // "preview" so the baked screenshots show realistic smoothing.
+    await page.click('vscode-single-select[data-form-control="bounces"]');
+    await page.keyboard.press("ArrowDown"); // 1 -> 2
     await page.keyboard.press("Enter");
     await page.waitForFunction(
-      "window.__showcase.state().bakeSettings.quality === 'draft'",
+      "window.__showcase.state().bakeSettings.bounces === 2",
       { timeout: 5_000, polling: 100 }
-    ).catch(async () => {
-      const probe = await page.evaluate(() => ({
-        value: document.querySelector('vscode-single-select[data-form-control="quality"]')?.value,
-        open: document.querySelector('vscode-single-select[data-form-control="quality"]')?.open,
-        state: window.__showcase.state().bakeSettings
-      }));
-      throw new Error(`dropdown change did not reach bake settings: ${JSON.stringify(probe)}`);
-    });
-    console.log("[showcase:smoke] PASS quality dropdown wired to bake settings");
+    );
+    await page.click('vscode-single-select[data-form-control="bounces"]');
+    await page.keyboard.press("ArrowUp"); // 2 -> 1
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      "window.__showcase.state().bakeSettings.bounces === 1",
+      { timeout: 5_000, polling: 100 }
+    );
+    console.log("[showcase:smoke] PASS bounces dropdown wired (default 1)");
 
     // 2. Unsupported file types are skipped, never loaded silently.
     console.log("[showcase:smoke] step: skipped-file evaluate");
@@ -309,6 +309,12 @@ async function main() {
     if (!stateAfterBake.hasUv1) throw new Error("no uv1 attribute after bake");
     if (stateAfterBake.displayMode !== "ao") throw new Error("AO display mode not active after bake");
     console.log(`[showcase:smoke] scene materials: ${JSON.stringify(stateAfterBake.materials)}`);
+
+    // Capture atlas-anchored UV samples BEFORE export for the round-trip check.
+    const uvSamples = await page.evaluate(() => window.__showcase.floorUvAtlasSamples());
+    if (!uvSamples || uvSamples.points.length < 4) {
+      throw new Error(`not enough floor UV samples: ${JSON.stringify(uvSamples)}`);
+    }
 
     // 5c. Display toggle without re-baking, via the display dropdown.
     await shot("02-ao-after-bake.png");
@@ -412,6 +418,54 @@ async function main() {
     }
     console.log("[showcase:smoke] PASS base color texture preserved on TEXCOORD_0");
 
+    // 6b. Orientation round trip: reimport the exported GLB and compare the
+    // AO map brightness at the same atlas UVs. A vertical flip anywhere in
+    // the chain makes these diverge.
+    const reimported = await page.evaluate(async (base64) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+      const file = new File([bytes], "roundtrip.glb", { type: "model/gltf-binary" });
+      await window.__showcase.loadFiles([file]);
+      return window.__showcase.state();
+    }, exported.base64);
+    if (!reimported.active.includes("roundtrip.glb")) {
+      throw new Error(`exported file did not reimport: ${reimported.active}`);
+    }
+    const roundTrip = await page.evaluate(
+      (points) => window.__showcase.sampleFloorAoMap(points),
+      uvSamples.points
+    );
+    if (!roundTrip) {
+      const probe = await page.evaluate(
+        async (base64, points) => {
+          const debug = await window.__showcase.debugLoadGlb(base64);
+          return {
+            active: window.__showcase.state().active,
+            debug,
+            sampleResult: window.__showcase.sampleFloorAoMap(points)
+          };
+        },
+        exported.base64,
+        uvSamples.points
+      );
+      throw new Error(
+        `reimported floor carries no aoMap to sample: ${JSON.stringify(probe)}`
+      );
+    }
+    let worst = 0;
+    for (let i = 0; i < uvSamples.values.length; i += 1) {
+      const expected = uvSamples.values[i];
+      const actual = roundTrip[i];
+      const delta = Math.abs(expected - actual);
+      if (delta > worst) worst = delta;
+    }
+    if (worst > 8) {
+      throw new Error(
+        `AO round trip mismatch (max delta ${worst}): orientation is wrong - ` +
+          `atlas ${JSON.stringify(uvSamples.values)} vs reimported ${JSON.stringify(roundTrip)}`
+      );
+    }
+    console.log(`[showcase:smoke] PASS AO orientation round trip (max delta ${worst} over ${uvSamples.values.length} samples)`);
+
     // 5b. Two valid documents: the tree activation switches the active scene.
     await page.evaluate(async () => {
       const file = await window.__showcase.generateSampleDocument();
@@ -472,7 +526,10 @@ async function main() {
     await page.waitForFunction(
       "window.__showcase.state().bakeStatus === 'idle'",
       { timeout: 10_000, polling: 200 }
-    );
+    ).catch(async () => {
+      const diagnosis = await page.evaluate(() => window.__showcase.state());
+      throw new Error(`post-switch state not idle: ${JSON.stringify(diagnosis)}`);
+    });
     console.log("[showcase:smoke] PASS tree activation switches between documents");
 
 

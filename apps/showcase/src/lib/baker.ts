@@ -54,6 +54,12 @@ export function checkBakeCapabilities(): CapabilityCheck {
 export interface BakeSettings {
   atlasSize: number;
   quality: QualityPreset;
+  /**
+   * Bounce count for the AO bake. One bounce is all an AO bake needs (the
+   * white sky is the only light source - there is nothing meaningful to
+   * bounce twice), so it defaults to 1 and is user-configurable.
+   */
+  bounces: number;
 }
 
 export interface BakeRunOptions {
@@ -64,6 +70,7 @@ export interface BakeRunOptions {
 
 export const QUALITY_PRESETS: readonly QualityPreset[] = ["draft", "preview", "final"];
 export const ATLAS_SIZES: readonly number[] = [512, 1024, 2048];
+export const BOUNCE_OPTIONS: readonly number[] = [1, 2, 3, 4];
 
 export function errorMessage(error: unknown): string {
   if (error instanceof StudioError) return error.message;
@@ -83,6 +90,7 @@ export async function bakeAmbientOcclusion(
     },
     atlas: { size: options.settings.atlasSize },
     quality: options.settings.quality,
+    options: { bounces: options.settings.bounces },
     signal: options.signal,
     onProgress: options.onProgress
   });
