@@ -84,11 +84,16 @@ jobs:
         with:
           enablement: true
 
+      # The artifact name includes the run attempt: re-running a job uploads a
+      # new artifact, and deploy-pages rejects duplicate names in one run.
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: apps/showcase/dist
+          name: github-pages-${{ github.run_attempt }}
 
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
