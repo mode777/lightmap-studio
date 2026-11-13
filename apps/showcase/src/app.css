@@ -18,6 +18,72 @@ body {
   background: var(--vscode-sideBar-background, #181818);
 }
 
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 6px 0 2px;
+}
+
+.app-brand-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  color: var(--vscode-activityBar-foreground, #d7d7d7);
+}
+
+.app-brand-title {
+  color: var(--vscode-titleBar-activeForeground, #cccccc);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.app-brand-subtitle {
+  padding-top: 1px;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.titlebar-file-input {
+  display: none;
+}
+
+.titlebar-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-titleBar-activeForeground, #cccccc);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.titlebar-action:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, #2a2d2e);
+}
+
+.titlebar-action:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #0078d4);
+  outline-offset: -1px;
+}
+
+.titlebar-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .explorer-body {
   display: flex;
   flex-direction: column;

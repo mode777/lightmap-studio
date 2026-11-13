@@ -17,6 +17,17 @@ The application SHALL accept one or more files dropped onto the window, recogniz
 - **WHEN** a user drops a `.txt` file together with a `.glb` document
 - **THEN** the `.glb` appears in the tree and the application reports the `.txt` file as skipped
 
+### Requirement: Application title bar
+The application SHALL render a title bar with the application icon and title, an Import action that opens a multi-file picker for `.glb`/`.gltf` documents and their parts, and an Export action for the baked active document. Export SHALL remain disabled until a bake completes for the active document.
+
+#### Scenario: Import from the title bar
+- **WHEN** the user activates Import, selects a `.glb` document and confirms
+- **THEN** the document is ingested through the same path as a drop and becomes the active scene
+
+#### Scenario: Export availability
+- **WHEN** no bake has completed for the active document
+- **THEN** the title-bar Export action is disabled, and it becomes enabled after a successful bake
+
 ### Requirement: Tree view of dropped files
 The application SHALL list all dropped files in a tree view in the sidebar, grouped under their document entries, and SHALL let the user select a document to load it into the viewport. Loading a different document SHALL replace the active scene.
 

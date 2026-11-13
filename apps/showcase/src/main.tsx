@@ -25,6 +25,7 @@ import "@vscode-elements/elements/dist/vscode-form-helper/index.js";
 import "vscode-workbench/styles/tokens.css";
 import "vscode-workbench/styles/global.css";
 import "vscode-workbench/styles/shell.css";
+import "vscode-workbench/styles/title-bar.css";
 import "vscode-workbench/styles/resizable-pane.css";
 import "vscode-workbench/styles/sidebar.css";
 import "vscode-workbench/styles/status-bar.css";

@@ -1,6 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent
+} from "react";
 import * as THREE from "three";
-import { ResizablePane, Sidebar, StatusBar, WorkbenchShell } from "vscode-workbench/react";
+import {
+  ResizablePane,
+  Sidebar,
+  StatusBar,
+  TitleBar,
+  WorkbenchShell
+} from "vscode-workbench/react";
 import {
   ATLAS_PADDING_OPTIONS,
   ATLAS_SIZES,
@@ -76,6 +89,7 @@ export function App() {
 
   const viewportHostRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<Viewport | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const documentTree = useMemo(
     () => buildFileTree(droppedFilesRef.current.length > 0 || droppedCount > 0 ? droppedFilesRef.current : []),
@@ -245,6 +259,18 @@ export function App() {
       return { documents: freshDocuments, skipped: skippedPaths };
     },
     [activateDocument, noteSkipped]
+  );
+
+  const handleImportChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const input = event.currentTarget;
+      const selected = Array.from(input.files ?? []);
+      // Allow picking the same document again after a reload.
+      input.value = "";
+      if (selected.length === 0) return;
+      void ingestFiles(selected.map((file) => ({ path: file.name, file })));
+    },
+    [ingestFiles]
   );
 
   // Tree activation: vscode-tree dispatches vsc-tree-select from the tree
@@ -581,6 +607,59 @@ export function App() {
 
   return (
     <WorkbenchShell
+      titleBar={
+        <TitleBar
+          label="Lightmap Studio"
+          left={
+            <div className="app-brand">
+              <span className="app-brand-icon" aria-hidden="true">
+                <vscode-icon name="lightbulb" size={18} />
+              </span>
+              <span className="app-brand-title">Lightmap Studio</span>
+              <span className="app-brand-subtitle">Showcase</span>
+            </div>
+          }
+          right={
+            <>
+              <input
+                ref={importInputRef}
+                className="titlebar-file-input"
+                type="file"
+                multiple
+                accept=".glb,.gltf,.bin,.png,.jpg,.jpeg,.webp"
+                data-role="import"
+                onChange={handleImportChange}
+              />
+              <button
+                type="button"
+                className="titlebar-action"
+                data-titlebar-action="import"
+                title="Import .glb / .gltf documents and their parts"
+                disabled={bakeStatus === "running"}
+                onClick={() => importInputRef.current?.click()}
+              >
+                <vscode-icon name="folder-opened" size={14} />
+                <span>Import</span>
+              </button>
+              <button
+                type="button"
+                className="titlebar-action"
+                data-titlebar-action="export"
+                title={
+                  bakeStatus === "done"
+                    ? "Export the baked document"
+                    : "Bake AO first to enable export"
+                }
+                disabled={bakeStatus !== "done" || activeName === null}
+                onClick={() => void runExport()}
+              >
+                <vscode-icon name="export" size={14} />
+                <span>Export</span>
+              </button>
+            </>
+          }
+        />
+      }
       primarySideBar={
         <ResizablePane
           side="left"

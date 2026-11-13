@@ -180,6 +180,35 @@ async function main() {
     await page.goto(url, { waitUntil: "load", timeout: 30_000 });
     await page.setViewport({ width: 1440, height: 900 });
     await page.waitForFunction("window.__showcase !== undefined", { timeout: 30_000, polling: 200 });
+
+    const titleBar = await page.evaluate(() => {
+      const actions = Array.from(document.querySelectorAll("[data-titlebar-action]"));
+      return {
+        title: document.querySelector(".app-brand-title")?.textContent ?? "",
+        // vscode-icon exposes `name` as a Lit property (not a reflected attribute).
+        icon: document.querySelector(".app-brand-icon vscode-icon")?.name ?? "",
+        actions: actions.map((action) => ({
+          id: action.dataset.titlebarAction,
+          text: action.textContent?.trim() ?? "",
+          disabled: action instanceof HTMLButtonElement ? action.disabled : true
+        }))
+      };
+    });
+    if (titleBar.title !== "Lightmap Studio" || titleBar.icon === "") {
+      throw new Error(`title bar branding is incomplete: ${JSON.stringify(titleBar)}`);
+    }
+    const importAction = titleBar.actions.find((action) => action.id === "import");
+    const exportAction = titleBar.actions.find((action) => action.id === "export");
+    if (!importAction || !exportAction) {
+      throw new Error(`title bar import/export actions are missing: ${JSON.stringify(titleBar)}`);
+    }
+    if (!exportAction.disabled) {
+      throw new Error("title bar export is enabled before a bake");
+    }
+    console.log(
+      `[showcase:smoke] PASS title bar (${titleBar.title}, import/export actions, export disabled before bake)`
+    );
+
     const shot = async (name) => {
       if (SCREENSHOT_DIR) {
         await page.screenshot({ path: path.join(SCREENSHOT_DIR, name) });
@@ -340,6 +369,11 @@ async function main() {
     const stateAfterBake = await page.evaluate(() => window.__showcase.state());
     if (!stateAfterBake.hasUv1) throw new Error("no uv1 attribute after bake");
     if (stateAfterBake.displayMode !== "ao") throw new Error("AO display mode not active after bake");
+    const titleBarExportEnabled = await page.evaluate(() => {
+      const button = document.querySelector('[data-titlebar-action="export"]');
+      return button instanceof HTMLButtonElement && !button.disabled;
+    });
+    if (!titleBarExportEnabled) throw new Error("title bar export is still disabled after bake");
     console.log(`[showcase:smoke] scene materials: ${JSON.stringify(stateAfterBake.materials)}`);
 
     // The lightmap UVs must cover every rebuilt vertex and the index buffer
@@ -631,6 +665,30 @@ async function main() {
     });
     console.log("[showcase:smoke] PASS tree activation switches between documents");
 
+    // Title-bar import: drive the hidden file input through a real change
+    // event, exactly like the OS file picker would.
+    const titleBarImport = await page.evaluate(async () => {
+      const sample = await window.__showcase.generateSampleDocument();
+      const file = new File([await sample.arrayBuffer()], "titlebar-import.glb", {
+        type: "model/gltf-binary"
+      });
+      const input = document.querySelector('input[type="file"][data-role="import"]');
+      if (!(input instanceof HTMLInputElement)) return { error: "no title-bar file input" };
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      return { files: input.files?.length ?? 0 };
+    });
+    if (titleBarImport.error) throw new Error(titleBarImport.error);
+    await page.waitForFunction(
+      "window.__showcase.state().active.includes('titlebar-import.glb')",
+      { timeout: 15_000, polling: 200 }
+    ).catch(async () => {
+      const state = await page.evaluate(() => window.__showcase.state());
+      throw new Error(`title-bar import did not activate the document: ${JSON.stringify(state)}`);
+    });
+    console.log("[showcase:smoke] PASS title bar import");
 
     if (pageErrors.length > 0) throw pageErrors[0];
     console.log("SHOWCASE SMOKE PASS");

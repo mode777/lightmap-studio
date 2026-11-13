@@ -10,6 +10,7 @@
 - [x] 2.1 Implement the drop pipeline: multi-file and folder drops (`webkitGetAsEntry` traversal), type classification (`.glb`/`.gltf` documents; `.bin`, `.png`, `.jpg`, `.jpeg`, `.webp` parts; others skipped and reported). Extract the pure classification/traversal helpers and cover them with `node --test` unit tests in `apps/showcase/test/`. Verify: `node --test test/` in `apps/showcase` passes.
 - [x] 2.2 Implement blob-URL `LoadingManager` resolution of `.bin`/texture references against the dropped set, `extensionsUsed` rejection for `KHR_draco_mesh_compression` / `KHR_texture_basisu` / `EXT_meshopt_compression` (unit-test the extension check), and `GLTFLoader` parsing of the selected document with a load error that names the unresolved file. Verify: unit tests pass; a local `.gltf`+`.bin`+texture drop loads and renders in the viewport (manual check or debug hook).
 - [x] 2.3 Populate the sidebar `vscode-tree` from the dropped file set (documents grouping their parts), wire document activation to load/replace the active scene, and show the empty-state viewport with drop invitation when nothing is loaded. Verify: dropping two documents lets you switch scenes from the tree (manual check).
+- [x] 2.4 Add the `TitleBar` region with app icon/title and Import/Export actions; Import feeds the shared drop pipeline and Export is bake-gated. Verify: the smoke checks the branding/actions, imports a document through the real file input change event, and asserts Export enables after baking.
 
 ## 3. AO bake
 
