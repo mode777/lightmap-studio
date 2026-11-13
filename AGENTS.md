@@ -30,7 +30,7 @@
 
 - `bake()` must check WebGL2 and `EXT_color_buffer_float` before requesting `lightmapper.wasm`; the headless suite asserts no lightmapper fetch when float support is missing.
 - Bakes must stay deterministic: call `lmSeed(0)` before each bake and zero the post-process ping-pong buffer; repeated-bake checks require <1e-6 drift.
-- Lightmap UVs are finite and in `[0, 1)`. `normalizeAtlasUv` clamps the atlas edge to `UV_MAX` because the lightmapper's positive-mod maps 1.0 to 0.0; out-of-range and degenerate UV triangles are rejected.
+- Lightmap UVs are finite and in `[0, 1)`. `normalizeAtlasUv` clamps the atlas edge to `UV_MAX` because the lightmapper's positive-mod maps 1.0 to 0.0; out-of-range UVs are rejected. Triangles xatlas leaves uncharted (`chartIndex === -1`, e.g. zero-area or sub-texel input triangles) are dropped from `indices` and counted in `UnwrappedObject.degenerateTriangleCount`; they must not abort the bake.
 - There is no directional light. Sky light is linear RGBA equirectangular data in bottom-up rows; point lights become emissive sphere proxies (see README).
 - `lightmapper-wasm` must stay >= 0.2.0: `lmSeed`/`_srand` are required for deterministic bakes.
 

@@ -97,7 +97,10 @@ export interface UnwrappedObject {
    */
   xref: Uint32Array;
   albedo: Vec3;
+  /** Triangles remaining in `indices` after dropping uncharted triangles. */
   triangleCount: number;
+  /** Triangles xatlas left uncharted (zero-area or collapsed); omitted from `indices`. */
+  degenerateTriangleCount: number;
   chartCount: number;
 }
 

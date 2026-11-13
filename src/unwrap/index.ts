@@ -11,6 +11,8 @@ import type {
 
 export const UV_MAX = 1 - 1e-6;
 const UV_AREA_EPSILON = 1e-14;
+/** `Uint32Array` encoding of xatlas's `chartIndex === -1` (not in any chart). */
+const UNCHARTED = 0xffffffff;
 
 /**
  * Normalize an xatlas texel coordinate. The lightmapper's positive-mod maps
@@ -169,15 +171,14 @@ function unwrapObject(
     normals[i * 3 + 2] = inputNormals[xref * 3 + 2];
     uvs[i * 2] = normalizeAtlasUv(vertex.uv[0], width);
     uvs[i * 2 + 1] = normalizeAtlasUv(vertex.uv[1], height);
-    charts[i] = vertex.chartIndex;
+    charts[i] = vertex.chartIndex >= 0 ? vertex.chartIndex : UNCHARTED;
     xrefs[i] = xref;
   }
 
-  const indices = new Uint32Array(output.indices);
   assertFinite(positions, `${label} positions`);
   assertFinite(normals, `${label} normals`);
   assertFinite(uvs, `${label} uvs`);
-  validateUvTriangles(label, uvs, indices);
+  const filtered = filterUvTriangles(label, uvs, charts, output.indices);
 
   const albedo: Vec3 = input.albedo ?? [0.8, 0.8, 0.8];
 
@@ -186,26 +187,52 @@ function unwrapObject(
     positions,
     normals,
     uvs,
-    indices,
+    indices: filtered.indices,
     charts,
     xref: xrefs,
     albedo,
-    triangleCount: indices.length / 3,
+    triangleCount: filtered.indices.length / 3,
+    degenerateTriangleCount: filtered.degenerateTriangleCount,
     chartCount: output.chartCount
   };
 }
 
-function validateUvTriangles(label: string, uvs: Float32Array, indices: Uint32Array): void {
-  for (let i = 0; i < indices.length; i += 3) {
-    const a = indices[i] * 2;
-    const b = indices[i + 1] * 2;
-    const c = indices[i + 2] * 2;
-    const ua = uvs[a];
-    const va = uvs[a + 1];
-    const ub = uvs[b];
-    const vb = uvs[b + 1];
-    const uc = uvs[c];
-    const vc = uvs[c + 1];
+/**
+ * Drop triangles xatlas could not chart. It returns them with
+ * `chartIndex === -1` and UVs at (0,0), usually because the source triangle is
+ * zero-area or too small to pack. The lightmapper explicitly skips zero-area
+ * UV triangles, so keeping them would only produce a bogus atlas sample. Valid
+ * charted triangles still have their UV range and area validated.
+ */
+function filterUvTriangles(
+  label: string,
+  uvs: Float32Array,
+  charts: Uint32Array,
+  source: Uint32Array
+): { indices: Uint32Array; degenerateTriangleCount: number } {
+  const vertexCount = uvs.length / 2;
+  const indices = new Uint32Array(source.length);
+  let write = 0;
+  let degenerateTriangleCount = 0;
+
+  for (let i = 0; i < source.length; i += 3) {
+    const a = source[i]!;
+    const b = source[i + 1]!;
+    const c = source[i + 2]!;
+    if (a >= vertexCount || b >= vertexCount || c >= vertexCount) {
+      throw new Error(`${label}: xatlas index out of range at triangle ${i / 3}`);
+    }
+    if (charts[a] === UNCHARTED || charts[b] === UNCHARTED || charts[c] === UNCHARTED) {
+      degenerateTriangleCount += 1;
+      continue;
+    }
+
+    const ua = uvs[a * 2]!;
+    const va = uvs[a * 2 + 1]!;
+    const ub = uvs[b * 2]!;
+    const vb = uvs[b * 2 + 1]!;
+    const uc = uvs[c * 2]!;
+    const vc = uvs[c * 2 + 1]!;
     if (
       ua < 0 || ua >= 1 || va < 0 || va >= 1 ||
       ub < 0 || ub >= 1 || vb < 0 || vb >= 1 ||
@@ -215,9 +242,24 @@ function validateUvTriangles(label: string, uvs: Float32Array, indices: Uint32Ar
     }
     const area = Math.abs((ub - ua) * (vc - va) - (uc - ua) * (vb - va)) * 0.5;
     if (!(area > UV_AREA_EPSILON)) {
-      throw new Error(`${label}: degenerate UV triangle ${i / 3} (area ${area})`);
+      // Defensive: a charted triangle should not collapse, but never hand the
+      // lightmapper a zero-area triangle.
+      degenerateTriangleCount += 1;
+      continue;
     }
+
+    indices[write] = a;
+    indices[write + 1] = b;
+    indices[write + 2] = c;
+    write += 3;
   }
+
+  if (write === 0) {
+    throw new Error(
+      `${label}: xatlas left all ${source.length / 3} triangles uncharted; nothing to bake`
+    );
+  }
+  return { indices: indices.slice(0, write), degenerateTriangleCount };
 }
 
 function assertFinite(values: Float32Array, label: string): void {

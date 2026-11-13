@@ -73,6 +73,76 @@ test("unwraps multiple meshes into one shared atlas", async () => {
   }
 });
 
+test("drops triangles xatlas leaves uncharted instead of failing the bake", async () => {
+  const xatlas = await createXAtlas();
+  try {
+    const normals = (count) =>
+      new Float32Array(count * 3).fill(0).map((_, index) => (index % 3 === 2 ? 1 : 0));
+    const zeroArea = {
+      name: "zero-area",
+      positions: new Float32Array([
+        0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0,
+        // Duplicate position: the third triangle has zero 3D area.
+        1, 0, 0
+      ]),
+      normals: normals(5),
+      indices: new Uint32Array([0, 1, 2, 0, 2, 3, 0, 1, 4])
+    };
+    const tiny = {
+      name: "tiny",
+      positions: new Float32Array([
+        0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0,
+        // Valid but too small for xatlas to give it a chart at this resolution.
+        10, 0, 0, 10.00001, 0, 0, 10, 0.00001, 0
+      ]),
+      normals: normals(7),
+      indices: new Uint32Array([0, 1, 2, 0, 2, 3, 4, 5, 6])
+    };
+
+    const scene = unwrapMeshes([zeroArea, tiny], { module: xatlas, size: 64 });
+    assert.equal(scene.litObjects.length, 2);
+    for (const object of scene.litObjects) {
+      assert.equal(object.degenerateTriangleCount, 1);
+      assert.equal(object.triangleCount, 2);
+      assert.equal(object.indices.length, 6);
+      for (let i = 0; i < object.indices.length; i += 1) {
+        assert.notEqual(object.charts[object.indices[i]], 0xffffffff);
+      }
+      for (let i = 0; i < object.indices.length; i += 3) {
+        const a = object.indices[i] * 2;
+        const b = object.indices[i + 1] * 2;
+        const c = object.indices[i + 2] * 2;
+        const area = Math.abs(
+          (object.uvs[b] - object.uvs[a]) * (object.uvs[c + 1] - object.uvs[a + 1]) -
+            (object.uvs[c] - object.uvs[a]) * (object.uvs[b + 1] - object.uvs[a + 1])
+        ) * 0.5;
+        assert.ok(area > 0, `${object.name}: kept UV triangle ${i / 3} has area ${area}`);
+      }
+    }
+  } finally {
+    xatlas.destroy?.();
+  }
+});
+
+test("rejects a mesh whose triangles are all uncharted", async () => {
+  const xatlas = await createXAtlas();
+  try {
+    const valid = quad(0, "valid");
+    const allDegenerate = {
+      name: "all-degenerate",
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 2, 0, 0]),
+      normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
+      indices: new Uint32Array([0, 1, 2])
+    };
+    assert.throws(
+      () => unwrapMeshes([valid, allDegenerate], { module: xatlas, size: 64 }),
+      /left all 1 triangles uncharted/
+    );
+  } finally {
+    xatlas.destroy?.();
+  }
+});
+
 test("rejects invalid mesh input with a validation error", async () => {
   const xatlas = await createXAtlas();
   try {

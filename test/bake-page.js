@@ -21,9 +21,23 @@ function quad({ y = 0, size = 4, facing = 1, offset = 0, emissive = null, name =
   };
 }
 
+/** Append a zero-area triangle (duplicate position) to exercise the xatlas fallback. */
+function addDegenerateTriangle(mesh) {
+  const positions = new Float32Array(mesh.positions.length + 3);
+  positions.set(mesh.positions);
+  positions.set(mesh.positions.subarray(3, 6), mesh.positions.length);
+  const normals = new Float32Array(mesh.normals.length + 3);
+  normals.set(mesh.normals);
+  normals.set(mesh.normals.subarray(3, 6), mesh.normals.length);
+  const indices = new Uint32Array(mesh.indices.length + 3);
+  indices.set(mesh.indices);
+  indices.set([0, 1, 4], mesh.indices.length);
+  return { ...mesh, positions, normals, indices };
+}
+
 function scene(extraLighting = {}) {
   return {
-    meshes: [quad({ y: 0, size: 4, facing: 1, name: "floor" })],
+    meshes: [addDegenerateTriangle(quad({ y: 0, size: 4, facing: 1, name: "floor" }))],
     lighting: {
       ambient: [0.02, 0.02, 0.02],
       emitters: [quad({ y: 2, size: 1.5, facing: -1, offset: 0.6, emissive: [8, 6, 4], name: "ceiling" })],
@@ -52,6 +66,16 @@ async function main() {
   try {
     const result = await studio.bake(scene());
     check("bake returns one mesh per lit input", result.scene.litObjects.length === 1);
+    check(
+      "uncharted degenerate triangles are dropped",
+      result.scene.litObjects[0].degenerateTriangleCount === 1,
+      result.scene.litObjects[0].degenerateTriangleCount
+    );
+    check(
+      "only charted triangles remain",
+      result.scene.litObjects[0].triangleCount === 2,
+      result.scene.litObjects[0].triangleCount
+    );
     check("bake returns the RGBA lightmap", result.lightmap.length === result.width * result.height * 4);
     check("lightmap values are finite", finite(result.lightmap));
     check("emissive ceiling lights the floor", result.stats.max > 0.01, result.stats.max);

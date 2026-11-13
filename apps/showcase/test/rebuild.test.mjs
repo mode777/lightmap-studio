@@ -33,6 +33,7 @@ function fakePart(entry, partIndex) {
       xref,
       albedo: entry.input.albedo,
       triangleCount: vertexCount / 3,
+      degenerateTriangleCount: 0,
       chartCount: 1
     }
   };

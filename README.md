@@ -56,6 +56,7 @@ const result = await studio.bake({
 });
 
 // result.scene.litObjects[i].uvs / positions / normals / indices / charts / xref
+// result.scene.litObjects[i].degenerateTriangleCount  triangles xatlas left uncharted
 // result.lightmap       Float32Array, RGBA
 // result.scene.atlas    width, height, chartCount, utilization
 // result.stats          mean, min, max, nonBlackRatio, litPixels
@@ -193,8 +194,11 @@ texture.needsUpdate = true;
 Use `result.scene.litObjects[i].uvs` as the lightmap UV attribute and multiply
 the material albedo by the texture. xatlas duplicates vertices at chart seams;
 `litObjects[i].xref` maps every output vertex back to its input vertex so you
-can carry TEXCOORD_0 and other per-vertex data onto the unwrapped geometry. Use
-`result.scene.emissiveObjects` for emissive geometry and point proxies.
+can carry TEXCOORD_0 and other per-vertex data onto the unwrapped geometry.
+Triangles xatlas cannot chart (zero-area or sub-texel input triangles) are
+omitted from `indices` and reported via `degenerateTriangleCount`, so one bad
+triangle does not abort the bake. Use `result.scene.emissiveObjects` for
+emissive geometry and point proxies.
 
 ## Showcase
 

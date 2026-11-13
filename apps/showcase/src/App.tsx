@@ -307,6 +307,15 @@ export function App() {
       const applied = applyBakeResult(current.entries, result);
       appliedRef.current = applied;
       setAppliedBake(applied);
+      const skipped = result.scene.litObjects.reduce(
+        (sum, object) => sum + object.degenerateTriangleCount,
+        0
+      );
+      if (skipped > 0) {
+        pushMessage(
+          `Ignored ${skipped} degenerate triangle(s) that xatlas could not chart; the rest of the document baked normally.`
+        );
+      }
       changeDisplayMode("ao");
       setStatus("done");
       setProgressLabel(null);
