@@ -65,6 +65,7 @@ export const QUALITY_PRESETS: Readonly<Record<QualityPreset, QualityPresetSettin
 export interface ResolvedBakeSettings {
   quality: QualityPreset;
   atlasSize: number;
+  atlasPadding: number;
   hemisphereSize: number;
   bounces: number;
   dilationPasses: number;
@@ -100,6 +101,14 @@ export function resolveBakeSettings(
   const atlasSize = input.atlas?.size ?? options.atlasSize ?? preset.atlasSize;
   if (!Number.isInteger(atlasSize) || atlasSize <= 0) {
     throw new StudioError(`atlas size ${atlasSize} must be a positive integer`, "validation");
+  }
+
+  const atlasPadding = input.atlas?.padding ?? options.atlasPadding ?? 2;
+  if (!Number.isInteger(atlasPadding) || atlasPadding < 0 || atlasPadding > 64) {
+    throw new StudioError(
+      `atlas padding ${atlasPadding} must be an integer in [0, 64]`,
+      "validation"
+    );
   }
 
   const hemisphereSize = options.hemisphereSize ?? preset.hemisphereSize;
@@ -155,6 +164,7 @@ export function resolveBakeSettings(
   return {
     quality,
     atlasSize,
+    atlasPadding,
     hemisphereSize,
     bounces,
     dilationPasses,

@@ -46,7 +46,7 @@ The application SHALL render the loaded document in a WebGL2 viewport with orbit
 - **THEN** the scene renders in the viewport and can be orbited and zoomed with the pointer
 
 ### Requirement: Ambient occlusion bake
-The application SHALL bake ambient occlusion for the active document through the lightmap-studio studio API, using a uniform white sky environment, zero ambient, and a single bounce. The user SHALL select atlas size (512/1024/2048) and quality preset (`draft`/`preview`/`final`), with a sensible default. Repeated bakes of the same document and settings SHALL produce the same result (determinism provided by the library).
+The application SHALL bake ambient occlusion for the active document through the lightmap-studio studio API, using a uniform white sky environment, zero ambient, and a single bounce. The user SHALL select atlas size (512/1024/2048), quality preset (`draft`/`preview`/`final`), and xatlas chart padding in texels, with a sensible default. Repeated bakes of the same document and settings SHALL produce the same result (determinism provided by the library).
 
 #### Scenario: Bake completes with progress
 - **WHEN** the user activates Bake for a loaded document

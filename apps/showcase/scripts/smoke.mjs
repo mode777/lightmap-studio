@@ -221,6 +221,23 @@ async function main() {
     );
     console.log("[showcase:smoke] PASS bounces dropdown wired (default 1)");
 
+    // Chart padding control: 8 px default, then one step up and back.
+    await page.click('vscode-single-select[data-form-control="padding"]');
+    await page.keyboard.press("ArrowDown"); // 8 -> 12
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      "window.__showcase.state().bakeSettings.padding === 12",
+      { timeout: 5_000, polling: 100 }
+    );
+    await page.click('vscode-single-select[data-form-control="padding"]');
+    await page.keyboard.press("ArrowUp"); // 12 -> 8
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      "window.__showcase.state().bakeSettings.padding === 8",
+      { timeout: 5_000, polling: 100 }
+    );
+    console.log("[showcase:smoke] PASS chart padding dropdown wired (default 8)");
+
     // 2. Unsupported file types are skipped, never loaded silently.
     console.log("[showcase:smoke] step: skipped-file evaluate");
     const skipped = await page.evaluate(async () => {
@@ -404,6 +421,11 @@ async function main() {
     });
     if (!stateAfterBake.atlas) {
       throw new Error(`bake state has no atlas metadata: ${JSON.stringify(stateAfterBake)}`);
+    }
+    if (stateAfterBake.atlas.padding !== stateAfterBake.bakeSettings.padding) {
+      throw new Error(
+        `atlas padding ${stateAfterBake.atlas.padding} != configured ${stateAfterBake.bakeSettings.padding}`
+      );
     }
     if (atlasView.width !== stateAfterBake.atlas.width) {
       throw new Error(

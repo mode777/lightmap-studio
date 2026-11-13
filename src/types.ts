@@ -79,6 +79,8 @@ export interface AtlasMetadata {
   chartCount: number;
   /** Normalized atlas texel utilization in [0, 1]. */
   utilization: number;
+  /** xatlas chart padding in texels. */
+  padding: number;
 }
 
 export interface UnwrappedObject {
@@ -187,13 +189,15 @@ export interface BakeOverrides {
   environmentPrefilter?: boolean | EnvironmentPrefilterOptions;
   /** Point-proxy sphere segments; from the quality preset by default. */
   pointSegments?: number;
+  /** xatlas chart padding in texels; defaults to 2. */
+  atlasPadding?: number;
 }
 
 export interface BakeInput {
   /** Lit meshes. Each receives a region of the shared atlas. */
   meshes: MeshInput[];
   lighting?: LightingInput;
-  atlas?: { size?: number };
+  atlas?: { size?: number; padding?: number };
   /** Defaults to "preview". */
   quality?: QualityPreset;
   options?: BakeOverrides;
@@ -206,6 +210,8 @@ export interface BakeInput {
 export interface UnwrapOptions {
   /** Shared atlas size in texels; defaults to the preview preset or 1024. */
   size?: number;
+  /** xatlas chart padding in texels; defaults to 2. */
+  padding?: number;
 }
 
 export interface WasmAssetOptions {

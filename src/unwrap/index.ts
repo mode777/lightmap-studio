@@ -35,6 +35,8 @@ export function normalizeAtlasUv(texel: number, size: number): number {
 export interface UnwrapMeshesOptions {
   module: XAtlasModule;
   size: number;
+  /** Chart padding in texels; defaults to 2. */
+  padding?: number;
   label?: string;
 }
 
@@ -47,6 +49,10 @@ export function unwrapMeshes(
   if (meshes.length === 0) throw new Error(`${label}: no lit meshes to unwrap`);
   if (!Number.isInteger(options.size) || options.size <= 0) {
     throw new Error(`${label}: invalid atlas size ${options.size}`);
+  }
+  const padding = options.padding ?? 2;
+  if (!Number.isInteger(padding) || padding < 0 || padding > 64) {
+    throw new Error(`${label}: atlas padding ${padding} must be an integer in [0, 64]`);
   }
 
   const atlas = options.module.createAtlas();
@@ -70,7 +76,7 @@ export function unwrapMeshes(
       { maxIterations: 1 },
       {
         resolution: options.size,
-        padding: 2,
+        padding,
         bilinear: true,
         blockAlign: true
       }
@@ -96,7 +102,8 @@ export function unwrapMeshes(
       width: atlas.width,
       height: atlas.height,
       chartCount: atlas.chartCount,
-      utilization: atlas.getUtilization(0)
+      utilization: atlas.getUtilization(0),
+      padding
     };
 
     return { litObjects, emissiveObjects: [], atlas: metadata };

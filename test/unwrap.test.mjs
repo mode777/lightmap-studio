@@ -35,6 +35,25 @@ test("normalizes atlas texels and clamps the exact edge", () => {
   assert.throws(() => normalizeAtlasUv(Number.NaN, 512), /non-finite/);
 });
 
+test("atlas padding is configurable and validated", async () => {
+  const xatlas = await createXAtlas();
+  try {
+    const scene = unwrapMeshes([quad()], { module: xatlas, size: 64, padding: 8 });
+    assert.equal(scene.atlas.padding, 8);
+    assert.equal(scene.litObjects[0].uvs.length, (scene.litObjects[0].positions.length / 3) * 2);
+    assert.throws(
+      () => unwrapMeshes([quad()], { module: xatlas, size: 64, padding: -1 }),
+      /atlas padding/
+    );
+    assert.throws(
+      () => unwrapMeshes([quad()], { module: xatlas, size: 64, padding: 65 }),
+      /atlas padding/
+    );
+  } finally {
+    xatlas.destroy?.();
+  }
+});
+
 test("unwraps multiple meshes into one shared atlas", async () => {
   const xatlas = await createXAtlas();
   try {

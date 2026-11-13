@@ -38,14 +38,31 @@ test("explicit overrides win over preset values", () => {
     {
       meshes: [],
       quality: "draft",
-      atlas: { size: 2048 },
+      atlas: { size: 2048, padding: 12 },
       options: { hemisphereSize: 64, bounces: 3 }
     },
     true
   );
   assert.equal(settings.atlasSize, 2048);
+  assert.equal(settings.atlasPadding, 12);
   assert.equal(settings.hemisphereSize, 64);
   assert.equal(settings.bounces, 3);
+});
+
+test("atlas padding can be overridden and rejects invalid values", () => {
+  assert.equal(
+    resolveBakeSettings({ meshes: [], options: { atlasPadding: 6 } }, true).atlasPadding,
+    6
+  );
+  assert.equal(resolveBakeSettings({ meshes: [] }, true).atlasPadding, 2);
+  assert.throws(
+    () => resolveBakeSettings({ meshes: [], atlas: { padding: -1 } }, true),
+    /atlas padding/
+  );
+  assert.throws(
+    () => resolveBakeSettings({ meshes: [], options: { atlasPadding: 65 } }, true),
+    /atlas padding/
+  );
 });
 
 test("unknown presets and invalid settings are rejected", () => {

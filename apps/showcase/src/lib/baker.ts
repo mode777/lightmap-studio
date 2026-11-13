@@ -55,6 +55,11 @@ export interface BakeSettings {
   atlasSize: number;
   quality: QualityPreset;
   /**
+   * Chart padding in atlas texels. The lightmapper's dilation and smoothing
+   * can bleed across narrowly packed charts, so this is user-configurable.
+   */
+  padding: number;
+  /**
    * Bounce count for the AO bake. One bounce is all an AO bake needs (the
    * white sky is the only light source - there is nothing meaningful to
    * bounce twice), so it defaults to 1 and is user-configurable.
@@ -70,6 +75,7 @@ export interface BakeRunOptions {
 
 export const QUALITY_PRESETS: readonly QualityPreset[] = ["draft", "preview", "final"];
 export const ATLAS_SIZES: readonly number[] = [512, 1024, 2048];
+export const ATLAS_PADDING_OPTIONS: readonly number[] = [2, 4, 8, 12, 16, 24, 32];
 export const BOUNCE_OPTIONS: readonly number[] = [1, 2, 3, 4];
 
 export function errorMessage(error: unknown): string {
@@ -88,7 +94,10 @@ export async function bakeAmbientOcclusion(
       environment: uniformSkyEnvironment(),
       ambient: [0, 0, 0]
     },
-    atlas: { size: options.settings.atlasSize },
+    atlas: {
+      size: options.settings.atlasSize,
+      padding: options.settings.padding
+    },
     quality: options.settings.quality,
     options: { bounces: options.settings.bounces },
     signal: options.signal,

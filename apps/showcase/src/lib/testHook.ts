@@ -15,8 +15,14 @@ export interface ShowcaseHookState {
   hasUv1: boolean;
   messages: string[];
   materials: Array<{ mesh: string; name: string; type: string; map: boolean; aoMap: boolean }>;
-  bakeSettings: { atlasSize: number; quality: string; bounces: number };
-  atlas: { width: number; height: number; chartCount: number; utilization: number } | null;
+  bakeSettings: { atlasSize: number; quality: string; padding: number; bounces: number };
+  atlas: {
+    width: number;
+    height: number;
+    chartCount: number;
+    utilization: number;
+    padding: number;
+  } | null;
 }
 
 export interface ExportOutcome {

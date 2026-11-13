@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { ResizablePane, Sidebar, StatusBar, WorkbenchShell } from "vscode-workbench/react";
 import {
+  ATLAS_PADDING_OPTIONS,
   ATLAS_SIZES,
   BOUNCE_OPTIONS,
   bakeAmbientOcclusion,
@@ -43,6 +44,7 @@ export function App() {
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
   const [displayMode, setDisplayMode] = useState<DisplayMode>("albedo");
   const [atlasSize, setAtlasSize] = useState(1024);
+  const [padding, setPadding] = useState(8);
   const [quality, setQuality] = useState<(typeof QUALITY_PRESETS)[number]>("preview");
   const [bounces, setBounces] = useState(1);
   const [stageTab, setStageTab] = useState<StageTab>("viewport");
@@ -60,9 +62,15 @@ export function App() {
   const messagesRef = useRef<string[]>([]);
   const bakingRef = useRef(false);
   const busyRef = useRef(false);
-  const settingsRef = useRef<{ atlasSize: number; quality: QualityPreset; bounces: number }>({
+  const settingsRef = useRef<{
+    atlasSize: number;
+    quality: QualityPreset;
+    padding: number;
+    bounces: number;
+  }>({
     atlasSize: 1024,
     quality: "preview",
+    padding: 8,
     bounces: 1
   });
 
@@ -101,6 +109,11 @@ export function App() {
     setQuality(preset);
   }, []);
 
+  const applyPadding = useCallback((value: number) => {
+    settingsRef.current.padding = value;
+    setPadding(value);
+  }, []);
+
   const applyBounces = useCallback((count: number) => {
     settingsRef.current.bounces = count;
     setBounces(count);
@@ -116,13 +129,14 @@ export function App() {
       if (!kind) return;
       const value = target?.value ?? "";
       if (kind === "atlas") applyAtlasSize(Number(value));
+      else if (kind === "padding") applyPadding(Number(value));
       else if (kind === "quality") applyQuality(value as QualityPreset);
       else if (kind === "bounces") applyBounces(Number(value));
       else if (kind === "display") changeDisplayMode(value as DisplayMode);
     };
     document.addEventListener("change", onChange, true);
     return () => document.removeEventListener("change", onChange, true);
-  }, [applyAtlasSize, applyBounces, applyQuality, changeDisplayMode]);
+  }, [applyAtlasSize, applyBounces, applyPadding, applyQuality, changeDisplayMode]);
 
   // Viewport lifecycle.
   useEffect(() => {
@@ -382,7 +396,8 @@ export function App() {
             width: appliedRef.current.scene.atlas.width,
             height: appliedRef.current.scene.atlas.height,
             chartCount: appliedRef.current.scene.atlas.chartCount,
-            utilization: appliedRef.current.scene.atlas.utilization
+            utilization: appliedRef.current.scene.atlas.utilization,
+            padding: appliedRef.current.scene.atlas.padding
           }
         : null
     };
@@ -637,6 +652,23 @@ export function App() {
                     </vscode-single-select>
                     <vscode-form-helper>
                       Resolution of the shared atlas texture.
+                    </vscode-form-helper>
+                  </vscode-form-group>
+                  <vscode-form-group variant="settings-group">
+                    <vscode-label>Chart padding</vscode-label>
+                    <vscode-single-select
+                      data-form-control="padding"
+                      value={String(padding)}
+                      disabled={bakeStatus === "running"}
+                    >
+                      {ATLAS_PADDING_OPTIONS.map((size) => (
+                        <vscode-option key={size} value={String(size)}>
+                          {`${size} px`}
+                        </vscode-option>
+                      ))}
+                    </vscode-single-select>
+                    <vscode-form-helper>
+                      Texels between UV charts. Raise it if light or dilation bleeds across islands.
                     </vscode-form-helper>
                   </vscode-form-group>
                   <vscode-form-group variant="settings-group">

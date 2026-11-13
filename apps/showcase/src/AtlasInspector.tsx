@@ -46,6 +46,7 @@ export function AtlasInspector({ applied }: AtlasInspectorProps) {
         </label>
         <span>{`Atlas ${atlas.width} x ${atlas.height}`}</span>
         <span>{`${atlas.chartCount} charts`}</span>
+        <span>{`${atlas.padding} px padding`}</span>
         <span>{`${(atlas.utilization * 100).toFixed(1)}% utilized`}</span>
         <span className="atlas-origin">UV origin: top-left (v = 0)</span>
       </div>

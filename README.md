@@ -33,7 +33,7 @@ const studio = await createStudio();
 // Unwrap only (works without WebGL, including in Node).
 const scene = await studio.unwrap(
   [{ name: "floor", positions, normals, indices, albedo: [0.8, 0.8, 0.8] }],
-  { size: 1024 }
+  { size: 1024, padding: 8 }
 );
 
 // Unwrap and bake.
@@ -51,14 +51,14 @@ const result = await studio.bake({
       { position: [0, 2, 0], color: [1, 0.8, 0.6], power: 40, radius: 0.08 }
     ]
   },
-  atlas: { size: 1024 },
+  atlas: { size: 1024, padding: 8 },
   quality: "preview"
 });
 
 // result.scene.litObjects[i].uvs / positions / normals / indices / charts / xref
 // result.scene.litObjects[i].degenerateTriangleCount  triangles xatlas left uncharted
 // result.lightmap       Float32Array, RGBA
-// result.scene.atlas    width, height, chartCount, utilization
+// result.scene.atlas    width, height, chartCount, utilization, padding
 // result.stats          mean, min, max, nonBlackRatio, litPixels
 // result.scene.emissiveObjects  emitters and generated point proxies
 studio.dispose();
@@ -67,6 +67,10 @@ studio.dispose();
 `bake` unwraps raw meshes and bakes them in one call. `unwrap` is the same
 atlas step without a WebGL context. Inputs and outputs are typed arrays and
 plain values; no three.js type crosses the boundary.
+
+`atlas.padding` (or `unwrap(..., { padding })`) is xatlas chart padding in
+texels and defaults to `2`. Raise it when dilation or texture filtering bleeds
+between UV islands; the trade-off is lower atlas utilization.
 
 ## Lighting model
 

@@ -43,7 +43,7 @@ function scene(extraLighting = {}) {
       emitters: [quad({ y: 2, size: 1.5, facing: -1, offset: 0.6, emissive: [8, 6, 4], name: "ceiling" })],
       ...extraLighting
     },
-    atlas: { size: 64 },
+    atlas: { size: 64, padding: 8 },
     quality: "draft",
     options: { hemisphereSize: 16, bounces: 1, dilationPasses: 1, environmentPrefilter: false }
   };
@@ -78,6 +78,7 @@ async function main() {
     );
     check("bake returns the RGBA lightmap", result.lightmap.length === result.width * result.height * 4);
     check("lightmap values are finite", finite(result.lightmap));
+    check("atlas padding is reported", result.scene.atlas.padding === 8, result.scene.atlas.padding);
     check("emissive ceiling lights the floor", result.stats.max > 0.01, result.stats.max);
     check("point proxies are absent when no point lights are supplied", result.scene.emissiveObjects.length === 1);
 

@@ -51,7 +51,12 @@ class StudioImpl implements Studio {
     const size = options.size ?? 1024;
     try {
       const module = await this.loader.loadXAtlas();
-      return unwrapMeshes(meshes, { module, size, label: "studio" });
+      return unwrapMeshes(meshes, {
+        module,
+        size,
+        padding: options.padding ?? 2,
+        label: "studio"
+      });
     } catch (error) {
       throw mapError(error, "atlas");
     }
@@ -95,6 +100,7 @@ class StudioImpl implements Studio {
       const unwrapped = unwrapMeshes(input.meshes, {
         module: xatlas,
         size: settings.atlasSize,
+        padding: settings.atlasPadding,
         label: "studio"
       });
       progress.emit("unwrap", 0.1, 0, 1, 0, input.meshes.length);
